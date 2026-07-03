@@ -7,26 +7,53 @@ import time
 from importlib import resources
 from pathlib import Path
 
-DEFAULT_RUN_JOURNAL = r"C:\Program Files\Siemens\NX2206\NXBIN\run_journal.exe"
+def get_root_dir():
+    env_root = os.environ.get("NX_MCP_ROOT")
+    if env_root:
+        return Path(env_root)
+    try:
+        file_path = Path(__file__).resolve()
+        for parent in file_path.parents:
+            if (parent / ".git").exists() or parent.name == "nx-mcp":
+                return parent
+        return file_path.parents[3]
+    except Exception:
+        return Path(os.getcwd())
+
+ROOT_DIR = get_root_dir()
 LIVE_PORT = 43210
-CONFIG_PATH = Path("C:/Users/HP/nx-mcp/live_bridge_config.json")
+CONFIG_PATH = ROOT_DIR / "live_bridge_config.json"
 
 
 def _update_watcher_files(filepath):
     try:
         abs_path = str(Path(filepath).resolve())
-        root = Path("C:/Users/HP/nx-mcp")
+        root = ROOT_DIR
         if root.exists():
             latest_txt = root / "latest_nx_result.txt"
             latest_txt.write_text(abs_path, encoding="utf-8")
+            
+            # Resolve ugs_router path dynamically
+            ugs_router_path = None
+            base_dir = os.environ.get("UGII_BASE_DIR")
+            if base_dir:
+                base_path = Path(base_dir)
+                candidates = [
+                    base_path / "NXBIN" / "ugs_router.exe",
+                    base_path / "UGII" / "ugs_router.exe",
+                ]
+                ugs_router_path = next((c for c in candidates if c.exists()), None)
+            if not ugs_router_path:
+                ugs_router_path = Path(r"C:\Program Files\Siemens\NX2206\NXBIN\ugs_router.exe")
+                
             cmd_path = root / "open_current_nx_result.cmd"
             cmd_path.write_text(
-                f'@echo off\nstart "" "C:\\Program Files\\Siemens\\NX2206\\NXBIN\\ugs_router.exe" -ug -use_file_dir "{abs_path}"\n',
+                f'@echo off\nstart "" "{ugs_router_path}" -ug -use_file_dir "{abs_path}"\n',
                 encoding="utf-8"
             )
             vbs_path = root / "open_latest_nx_result.vbs"
             vbs_path.write_text(
-                f'Set shell = CreateObject("WScript.Shell")\nshell.Run """C:\\Program Files\\Siemens\\NX2206\\NXBIN\\ugs_router.exe"" -ug -use_file_dir ""{abs_path}""", 0, False\n',
+                f'Set shell = CreateObject("WScript.Shell")\nshell.Run """{ugs_router_path}"" -ug -use_file_dir ""{abs_path}""", 0, False\n',
                 encoding="utf-8"
             )
     except Exception:

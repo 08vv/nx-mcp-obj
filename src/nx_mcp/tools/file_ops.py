@@ -10,12 +10,16 @@ def _use_mock_nxopen():
     return os.environ.get("NX_MCP_USE_MOCK_NXOPEN") == "1"
 
 
+def _cmd_path():
+    return str(runner.ROOT_DIR / "open_current_nx_result.cmd")
+
+
 def _bridge_result(result):
     if result.get("ok"):
         msg = result.get("message", "OK")
         filepath = result.get("filepath")
         if filepath:
-            cmd_path = r"C:\Users\HP\nx-mcp\open_current_nx_result.cmd"
+            cmd_path = _cmd_path()
             msg += f"\n\nTo manually open in NX, run:\n{cmd_path}"
         return ToolResult(msg)
     return ToolError(result.get("error", "NX bridge command failed"))
@@ -27,7 +31,7 @@ def create_part(filename: str):
             nxopen = NXSession.nxopen()
             NXSession.get().Parts.NewDisplay(filename, nxopen.Part.Units.Millimeters)
             runner._update_watcher_files(filename)
-            cmd_path = r"C:\Users\HP\nx-mcp\open_current_nx_result.cmd"
+            cmd_path = _cmd_path()
             return ToolResult(f"Created part: {filename}\n\nTo manually open in NX, run:\n{cmd_path}")
         return _bridge_result(runner.call_nx("create_part", {"filename": filename}))
     except Exception as e: return ToolError(str(e))
@@ -38,7 +42,7 @@ def open_part(filepath: str):
         if _use_mock_nxopen():
             NXSession.get().Parts.Open(filepath)
             runner._update_watcher_files(filepath)
-            cmd_path = r"C:\Users\HP\nx-mcp\open_current_nx_result.cmd"
+            cmd_path = _cmd_path()
             return ToolResult(f"Opened: {filepath}\n\nTo manually open in NX, run:\n{cmd_path}")
         return _bridge_result(runner.call_nx("open_part", {"filepath": filepath}))
     except Exception as e: return ToolError(str(e))
@@ -52,7 +56,7 @@ def save_part():
             filepath = getattr(part, "FullPath", "")
             if filepath:
                 runner._update_watcher_files(filepath)
-                cmd_path = r"C:\Users\HP\nx-mcp\open_current_nx_result.cmd"
+                cmd_path = _cmd_path()
                 return ToolResult(f"Part saved\n\nTo manually open in NX, run:\n{cmd_path}")
             return ToolResult("Part saved")
         return _bridge_result(runner.call_nx("save_part", {}))
@@ -61,6 +65,8 @@ def save_part():
 @mcp_tool("export_step", "Export current part as STEP file")
 def export_step(output_path: str):
     try:
+        if not _use_mock_nxopen():
+            return _bridge_result(runner.call_nx("export_step", {"output_path": output_path}))
         exp = NXSession.get().DexManager.CreateStepCreator()
         exp.ObjectTypes.Solids = True
         exp.OutputFile = output_path
@@ -71,6 +77,8 @@ def export_step(output_path: str):
 @mcp_tool("export_stl", "Export current part as STL file")
 def export_stl(output_path: str):
     try:
+        if not _use_mock_nxopen():
+            return _bridge_result(runner.call_nx("export_stl", {"output_path": output_path}))
         exp = NXSession.get().DexManager.CreateStlCreator()
         exp.OutputFile = output_path
         exp.Commit(); exp.Destroy()

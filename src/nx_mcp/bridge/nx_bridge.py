@@ -12,6 +12,33 @@ import NXOpen
 import NXOpen.UF
 
 
+def get_root_dir():
+    env_root = os.environ.get("NX_MCP_ROOT")
+    if env_root:
+        return Path(env_root)
+    try:
+        file_path = Path(__file__).resolve()
+        for parent in file_path.parents:
+            if (parent / ".git").exists() or parent.name == "nx-mcp":
+                return parent
+        return file_path.parents[3]
+    except Exception:
+        return Path(os.getcwd())
+
+ROOT_DIR = get_root_dir()
+
+
+def _debug_log(filename, content, mode="a"):
+    if os.environ.get("NX_MCP_DEBUG_LOGS") == "1":
+        try:
+            debug_path = ROOT_DIR / "scratch" / filename
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(debug_path, mode, encoding="utf-8") as f:
+                f.write(content)
+        except Exception:
+            pass
+
+
 SESSION = NXOpen.Session.GetSession()
 UF_SESSION = NXOpen.UF.UFSession.GetUFSession()
 ACTIVE_SKETCH_PLANE = "XY"
@@ -29,9 +56,63 @@ _state = {
 class SelectionError(RuntimeError):
     pass
 
+import ast
+import operator
+
+_SAFE_OPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.Pow: operator.pow,
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
+
+def _safe_math_eval(expr_str):
+    """Evaluate a simple arithmetic expression safely without eval()."""
+    node = ast.parse(expr_str.strip(), mode="eval").body
+    return float(_eval_node(node))
+
+def _eval_node(node):
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return node.value
+    if isinstance(node, ast.BinOp) and type(node.op) in _SAFE_OPS:
+        return _SAFE_OPS[type(node.op)](_eval_node(node.left), _eval_node(node.right))
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _SAFE_OPS:
+        return _SAFE_OPS[type(node.op)](_eval_node(node.operand))
+    raise ValueError(f"Unsupported expression node: {ast.dump(node)}")
+
+
+def _eval_val(val):
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    val_str = str(val).strip()
+    try:
+        return float(val_str)
+    except ValueError:
+        pass
+    
+    work_part = _ensure_work_part()
+    import random
+    temp_name = f"EVAL_{int(time.time())}_{random.randint(0, 1000)}"
+    try:
+        exp = work_part.Expressions.CreateExpression("Number", f"{temp_name} = {val_str}")
+        res = exp.Value
+        work_part.Expressions.Delete(exp)
+        return res
+    except Exception as e:
+        sys.stderr.write(f"Expression eval error for '{val_str}': {e}\n")
+        try:
+            return _safe_math_eval(val_str)
+        except Exception:
+            raise RuntimeError(f"Could not evaluate expression '{val_str}': {e}")
+
 
 def _default_part_path():
-    return str(Path(os.getcwd()).joinpath("nx_mcp_result.prt").resolve())
+    return str(ROOT_DIR.joinpath("nx_mcp_result.prt").resolve())
 
 
 def _ensure_work_part():
@@ -76,19 +157,22 @@ def _resolve_revolve_axis(axis):
     return axis
 
 
+_expression_counters = {}
+
 def _create_named_expression(work_part, prefix, value):
     if not hasattr(work_part, "Expressions"):
         return f"{prefix}_MOCK"
-    counter = 1
-    while True:
+    # Use cached counter to avoid linear search every time
+    start = _expression_counters.get(prefix, 1)
+    for counter in range(start, start + 1000):
         name = f"{prefix}_{counter}"
         try:
             work_part.Expressions.FindObject(name)
-            counter += 1
         except Exception:
-            break
-    work_part.Expressions.CreateExpression("Number", f"{name} = {value}")
-    return name
+            work_part.Expressions.CreateExpression("Number", f"{name} = {value}")
+            _expression_counters[prefix] = counter + 1
+            return name
+    raise RuntimeError(f"Could not create expression with prefix '{prefix}' after 1000 attempts")
 
 
 def _feature_name(feature):
@@ -201,6 +285,14 @@ def _resolve_body(reference="last"):
         body = _state.get("last_body")
         if body is not None:
             return body
+
+    if ref.startswith("body_"):
+        suffix = ref[5:].strip()
+        if suffix.isdigit():
+            idx = int(suffix) - 1
+            bodies = _iter_bodies(work_part)
+            if 0 <= idx < len(bodies):
+                return bodies[idx]
 
     if ref in _state["bodies"]:
         return _state["bodies"][ref]
@@ -460,21 +552,82 @@ def fit_view():
     return {"ok": True, "message": "View fitted"}
 
 
+def probe_screenshot():
+    try:
+        ui = NXOpen.UI.GetUI()
+        builder = ui.CreateImageExportBuilder()
+        attrs = dir(builder)
+        
+        # Check FileFormats properties
+        formats_attrs = []
+        try:
+            formats_attrs = dir(NXOpen.Gateway.ImageExportBuilder.FileFormats)
+        except Exception as e:
+            formats_attrs = [f"Error formats: {e}"]
+            
+        builder.Destroy()
+        return {"ok": True, "message": "Probe successful", "builder_attrs": attrs, "formats_attrs": formats_attrs}
+    except Exception as e:
+        return {"ok": False, "error": f"Probe failed: {e}"}
+
+
+def take_screenshot(output_path):
+    try:
+        ui = NXOpen.UI.GetUI()
+        builder = ui.CreateImageExportBuilder()
+        
+        # Try standard Png format setting
+        try:
+            builder.FileFormat = NXOpen.Gateway.ImageExportBuilder.FileFormats.Png
+        except Exception:
+            try:
+                # Fallback to index if Enum is different
+                builder.FileFormat = 1 # typical PNG index
+            except Exception:
+                pass
+                
+        builder.FileName = str(output_path)
+        builder.Commit()
+        builder.Destroy()
+        return {"ok": True, "message": f"Screenshot saved to {output_path}"}
+    except Exception as e:
+        try:
+            builder.Destroy()
+        except Exception:
+            pass
+        return {"ok": False, "error": f"Failed to take screenshot: {e}"}
+
+
+
 def _update_result_files(filepath):
     try:
         import os
         abs_path = os.path.abspath(filepath)
-        root = "C:\\Users\\HP\\nx-mcp"
+        root = str(ROOT_DIR)
         if os.path.exists(root):
             latest_txt = os.path.join(root, "latest_nx_result.txt")
             with open(latest_txt, "w", encoding="utf-8") as f:
                 f.write(abs_path)
+            
+            # Resolve ugs_router path dynamically
+            ugs_router_path = None
+            base_dir = os.environ.get("UGII_BASE_DIR")
+            if base_dir:
+                base_path = Path(base_dir)
+                candidates = [
+                    base_path / "NXBIN" / "ugs_router.exe",
+                    base_path / "UGII" / "ugs_router.exe",
+                ]
+                ugs_router_path = next((c for c in candidates if c.exists()), None)
+            if not ugs_router_path:
+                ugs_router_path = Path(r"C:\Program Files\Siemens\NX2206\NXBIN\ugs_router.exe")
+
             cmd_path = os.path.join(root, "open_current_nx_result.cmd")
             with open(cmd_path, "w", encoding="utf-8") as f:
-                f.write(f'@echo off\nstart "" "C:\\Program Files\\Siemens\\NX2206\\NXBIN\\ugs_router.exe" -ug -use_file_dir "{abs_path}"\n')
+                f.write(f'@echo off\nstart "" "{ugs_router_path}" -ug -use_file_dir "{abs_path}"\n')
             vbs_path = os.path.join(root, "open_latest_nx_result.vbs")
             with open(vbs_path, "w", encoding="utf-8") as f:
-                f.write(f'Set shell = CreateObject("WScript.Shell")\nshell.Run """C:\\Program Files\\Siemens\\NX2206\\NXBIN\\ugs_router.exe"" -ug -use_file_dir ""{abs_path}""", 0, False\n')
+                f.write(f'Set shell = CreateObject("WScript.Shell")\nshell.Run """{ugs_router_path}"" -ug -use_file_dir ""{abs_path}""", 0, False\n')
     except Exception:
         pass
 
@@ -539,11 +692,19 @@ def create_sketch(plane="XY"):
 
 
 def _point_on_active_plane(x, y):
+    ox, oy, oz = _state.get("sketch_origin", [0.0, 0.0, 0.0])
+    angle_deg = _state.get("sketch_rotation", 0.0)
+    
     if ACTIVE_SKETCH_PLANE == "XY":
-        return NXOpen.Point3d(x, y, 0.0)
+        angle_rad = math.radians(angle_deg)
+        cos_a = math.cos(angle_rad)
+        sin_a = math.sin(angle_rad)
+        x_rot = x * cos_a - y * sin_a
+        y_rot = x * sin_a + y * cos_a
+        return NXOpen.Point3d(x_rot + ox, y_rot + oy, oz)
     if ACTIVE_SKETCH_PLANE == "XZ":
-        return NXOpen.Point3d(x, 0.0, y)
-    return NXOpen.Point3d(0.0, x, y)
+        return NXOpen.Point3d(x + ox, oy, y + oz)
+    return NXOpen.Point3d(ox, x + oy, y + oz)
 
 
 def draw_rectangle(x, y, width, height):
@@ -586,26 +747,41 @@ def draw_rectangle(x, y, width, height):
     }
 
 
-def _normal_for_active_plane():
-    if ACTIVE_SKETCH_PLANE == "XY":
+def _normal_for_plane(plane_name):
+    plane_name = str(plane_name).upper()
+    if plane_name == "XY":
         return NXOpen.Vector3d(0.0, 0.0, 1.0)
-    if ACTIVE_SKETCH_PLANE == "XZ":
+    if plane_name == "XZ":
         return NXOpen.Vector3d(0.0, 1.0, 0.0)
     return NXOpen.Vector3d(1.0, 0.0, 0.0)
 
 
+def _normal_for_active_plane():
+    return _normal_for_plane(ACTIVE_SKETCH_PLANE)
+
+
 def draw_circle(cx, cy, radius):
-    cx = float(cx)
-    cy = float(cy)
-    radius = float(radius)
+    cx = _eval_val(cx)
+    cy = _eval_val(cy)
+    radius = _eval_val(radius)
 
     if radius <= 0.0:
         return {"ok": False, "error": "Circle radius must be positive"}
 
     part = _ensure_work_part()
+    
+    # Calculate rotated orientation vectors:
+    angle_deg = _state.get("sketch_rotation", 0.0)
+    angle_rad = math.radians(angle_deg)
+    cos_a = math.cos(angle_rad)
+    sin_a = math.sin(angle_rad)
+    x_dir = NXOpen.Vector3d(cos_a, sin_a, 0.0)
+    y_dir = NXOpen.Vector3d(-sin_a, cos_a, 0.0)
+
     circle = part.Curves.CreateArc(
         _point_on_active_plane(cx, cy),
-        _normal_for_active_plane(),
+        x_dir,
+        y_dir,
         radius,
         0.0,
         6.283185307179586,
@@ -625,10 +801,10 @@ def draw_circle(cx, cy, radius):
 
 
 def draw_line(x1, y1, x2, y2):
-    x1 = float(x1)
-    y1 = float(y1)
-    x2 = float(x2)
-    y2 = float(y2)
+    x1 = _eval_val(x1)
+    y1 = _eval_val(y1)
+    x2 = _eval_val(x2)
+    y2 = _eval_val(y2)
 
     part = _ensure_work_part()
     line = part.Curves.CreateLine(
@@ -650,22 +826,33 @@ def draw_line(x1, y1, x2, y2):
 
 
 def draw_arc(cx, cy, radius, start_angle, end_angle):
-    cx = float(cx)
-    cy = float(cy)
-    radius = float(radius)
-    start_angle = float(start_angle)
-    end_angle = float(end_angle)
+    cx = _eval_val(cx)
+    cy = _eval_val(cy)
+    radius = _eval_val(radius)
+    start_angle = _eval_val(start_angle)
+    end_angle = _eval_val(end_angle)
 
     if radius <= 0.0:
         return {"ok": False, "error": "Arc radius must be positive"}
 
     part = _ensure_work_part()
+    
+    # Calculate rotated orientation vectors:
+    angle_deg = _state.get("sketch_rotation", 0.0)
+    angle_rad = math.radians(angle_deg)
+    cos_a = math.cos(angle_rad)
+    sin_a = math.sin(angle_rad)
+    x_dir = NXOpen.Vector3d(cos_a, sin_a, 0.0)
+    y_dir = NXOpen.Vector3d(-sin_a, cos_a, 0.0)
+
+    rot_val = _state.get("sketch_rotation", 0.0)
     arc = part.Curves.CreateArc(
         _point_on_active_plane(cx, cy),
-        _normal_for_active_plane(),
+        x_dir,
+        y_dir,
         radius,
-        math.radians(start_angle),
-        math.radians(end_angle),
+        math.radians(start_angle + rot_val),
+        math.radians(end_angle + rot_val),
     )
     active_sketch = _state.get("active_sketch")
     if active_sketch is not None:
@@ -710,6 +897,360 @@ def _create_xy_arc(radius):
     return NXOpen.TaggedObjectManager().GetTaggedObject(arc_tag)
 
 
+def draw_rounded_rectangle(arm_length, arm_width, end_radius, cx_left=None, cy=0.0, z=None):
+    """
+    Draw a closed rounded-rectangle (stadium/oblong) profile.
+
+    The profile has:
+      - Left rounded end arc centered at (cx_left, cy, z_plane)
+      - Right rounded end arc centered at (cx_left + arm_length - 2*end_radius, cy, z_plane)
+
+    Parameters:
+      arm_length (float): Total tip-to-tip length of the profile
+      arm_width  (float): Total width (= 2 * end_radius for tangent arcs)
+      end_radius (float): Radius of the rounded end semicircles
+      cx_left    (float): X of the left arc center. Defaults to 0.0.
+      cy         (float): Y of both arc centers. Defaults to 0.0.
+      z          (float): Z plane for the profile. Defaults to 0.0.
+
+    Curves are appended to _state["last_curves"].
+    Returns ok dict with number of curves added.
+    """
+    arm_length = _eval_val(arm_length)
+    arm_width  = _eval_val(arm_width)
+    end_radius = _eval_val(end_radius)
+    if cx_left is None:
+        cx_left = 0.0
+    cx_left = _eval_val(cx_left)
+    cy      = _eval_val(cy)
+    if z is None:
+        z_val = 0.0
+    else:
+        z_val = _eval_val(z)
+
+    cx_right = cx_left + (arm_length - 2.0 * end_radius)
+    half_w   = arm_width / 2.0
+
+    part   = _ensure_work_part()
+    
+    # Rotated local coordinate vectors:
+    angle_deg = _state.get("sketch_rotation", 0.0)
+    angle_rad = math.radians(angle_deg)
+    cos_a = math.cos(angle_rad)
+    sin_a = math.sin(angle_rad)
+    x_dir = NXOpen.Vector3d(cos_a, sin_a, 0.0)
+    y_dir = NXOpen.Vector3d(-sin_a, cos_a, 0.0)
+
+    curves = []
+
+    # Left arc: 90° → 270° (left-facing semicircle, CCW)
+    p_left = _point_on_active_plane(cx_left, cy)
+    curves.append(part.Curves.CreateArc(
+        p_left, x_dir, y_dir, end_radius,
+        math.radians(90.0), math.radians(270.0)
+    ))
+
+    # Bottom line: left_bottom → right_bottom
+    p1 = _point_on_active_plane(cx_left,  cy - half_w)
+    p2 = _point_on_active_plane(cx_right, cy - half_w)
+    curves.append(part.Curves.CreateLine(p1, p2))
+
+    # Right arc: 270° → 90° (right-facing semicircle, CCW)
+    p_right = _point_on_active_plane(cx_right, cy)
+    curves.append(part.Curves.CreateArc(
+        p_right, x_dir, y_dir, end_radius,
+        math.radians(270.0), math.radians(90.0)
+    ))
+
+    # Top line: right_top → left_top  (closes the loop)
+    p3 = _point_on_active_plane(cx_right, cy + half_w)
+    p4 = _point_on_active_plane(cx_left,  cy + half_w)
+    curves.append(part.Curves.CreateLine(p3, p4))
+
+    active_sketch = _state.get("active_sketch")
+    if active_sketch is not None:
+        for curve in curves:
+            try:
+                active_sketch.AddGeometry(curve, NXOpen.Sketch.ConstraintClass.Geometrical)
+            except Exception:
+                try:
+                    active_sketch.AddGeometry(curve)
+                except Exception:
+                    pass
+
+    _state.setdefault("last_curves", []).extend(curves)
+    fit_view()
+    return {
+        "ok": True,
+        "message": (
+            f"Rounded rectangle: L={arm_length} W={arm_width} R={end_radius} "
+            f"left_arc=({cx_left},{cy}) right_arc=({cx_right},{cy}) z={z_val}"
+        ),
+    }
+
+
+def create_offset_linkage_arm(output_path=None):
+    """
+    Create a fully parametric offset linkage arm.
+
+    Part description:
+      Two identical rounded-end arms connected by a vertical cylindrical spacer.
+      The upper arm is rotated 180° relative to the lower arm.
+
+    Named expressions created:
+      ARM_LENGTH=90, ARM_WIDTH=24, ARM_THICK=8, END_RADIUS=12,
+      HOLE_DIA=10, HOLE_OFFSET=12, CYLINDER_DIA=22, CYLINDER_HEIGHT=55,
+      BLEND_RADIUS=2, CHAMFER_OFFSET=0.5
+
+    Coordinate origin = left hole of lower arm = cylinder axis at Z=0.
+
+    If output_path is None, uses the current work part.
+    """
+    import os as _os
+
+    # ---- Parameters ----
+    PARAMS = {
+        "ARM_LENGTH":      90.0,
+        "ARM_WIDTH":       24.0,
+        "ARM_THICK":       8.0,
+        "END_RADIUS":      12.0,
+        "HOLE_DIA":        10.0,
+        "HOLE_OFFSET":     12.0,
+        "CYLINDER_DIA":    22.0,
+        "CYLINDER_HEIGHT": 55.0,
+        "BLEND_RADIUS":    2.0,
+        "CHAMFER_OFFSET":  0.5,
+    }
+
+    ARM_L   = PARAMS["ARM_LENGTH"]       # 90
+    ARM_W   = PARAMS["ARM_WIDTH"]        # 24
+    ARM_T   = PARAMS["ARM_THICK"]        # 8
+    END_R   = PARAMS["END_RADIUS"]       # 12
+    HOLE_D  = PARAMS["HOLE_DIA"]         # 10
+    HOLE_O  = PARAMS["HOLE_OFFSET"]      # 12
+    CYL_D   = PARAMS["CYLINDER_DIA"]     # 22
+    CYL_H   = PARAMS["CYLINDER_HEIGHT"]  # 55
+    BLEND_R = PARAMS["BLEND_RADIUS"]     # 2
+    CHAM_O  = PARAMS["CHAMFER_OFFSET"]   # 0.5
+
+    ARM_SPAN = ARM_L - 2.0 * END_R   # 66.0
+    CYL_R    = CYL_D / 2.0           # 11.0
+
+    # Geometry: origin = left hole of lower arm = cylinder axis
+    # Lower arm: left arc center at (-HOLE_O, 0, 0)
+    #            right arc center at (-HOLE_O + ARM_SPAN, 0, 0) = (54, 0)
+    #            left hole at (0, 0, ARM_T)
+    #            right hole at (ARM_SPAN - 2*HOLE_O, 0, ARM_T) = (42, 0, ARM_T)
+    # Upper arm: right arc center at (HOLE_O, 0, Z_CYL_TOP)
+    #            left arc center at (HOLE_O - ARM_SPAN, 0, Z_CYL_TOP) = (-54, 0, Z_CYL_TOP)
+    #            right hole at (0, 0, Z_UPPER_TOP)
+    #            left hole at (-(ARM_SPAN - 2*HOLE_O), 0, Z_UPPER_TOP) = (-42, 0, Z_UPPER_TOP)
+    LOWER_LEFT_ARC_X   = -HOLE_O
+    LOWER_RIGHT_ARC_X  = LOWER_LEFT_ARC_X + ARM_SPAN  # 54
+    LOWER_LEFT_HOLE_X  = 0.0
+    LOWER_RIGHT_HOLE_X = ARM_SPAN - 2.0 * HOLE_O       # 42
+
+    UPPER_RIGHT_ARC_X  = HOLE_O                        # 12
+    UPPER_LEFT_ARC_X   = UPPER_RIGHT_ARC_X - ARM_SPAN  # -54
+    UPPER_RIGHT_HOLE_X = 0.0
+    UPPER_LEFT_HOLE_X  = -(ARM_SPAN - 2.0 * HOLE_O)    # -42
+
+    Z_LOWER_TOP = ARM_T
+    Z_CYL_TOP   = ARM_T + CYL_H
+    Z_UPPER_TOP = ARM_T + CYL_H + ARM_T
+
+    def _extrude_profile(curves, start_val, end_val, bool_type=None, bool_target=None):
+        """Extrude curves in +Z from start_val to end_val."""
+        work_part = SESSION.Parts.Work
+        builder = work_part.Features.CreateExtrudeBuilder(NXOpen.Features.Feature.Null)
+        try:
+            section = work_part.Sections.CreateSection(0.0095, 0.01, 0.5)
+            rules = [work_part.ScRuleFactory.CreateRuleCurveDumb([c]) for c in curves]
+            section.AddToSection(
+                rules, curves[0],
+                NXOpen.NXObject.Null, NXOpen.NXObject.Null,
+                NXOpen.Point3d(0.0, 0.0, 0.0),
+                NXOpen.Section.Mode.Create, False,
+            )
+            builder.Section = section
+            origin = NXOpen.Point3d(0.0, 0.0, 0.0)
+            nx_dir = work_part.Directions.CreateDirection(
+                origin, NXOpen.Vector3d(0.0, 0.0, 1.0),
+                NXOpen.SmartObject.UpdateOption.WithinModeling,
+            )
+            builder.Direction = nx_dir
+            builder.Limits.StartExtend.Value.RightHandSide = str(float(start_val))
+            builder.Limits.EndExtend.Value.RightHandSide = str(float(end_val))
+            if bool_type is not None:
+                builder.BooleanOperation.Type = bool_type
+                if bool_target is not None:
+                    try:
+                        builder.BooleanOperation.SetTarget(bool_target)
+                    except Exception:
+                        pass
+            else:
+                builder.BooleanOperation.Type = NXOpen.Features.Feature.BooleanType.Create
+            feat = builder.CommitFeature()
+            _remember_feature(feat)
+            return feat
+        finally:
+            builder.Destroy()
+
+    def _get_body():
+        bodies = list(SESSION.Parts.Work.Bodies.ToArray() or [])
+        return bodies[-1] if bodies else None
+
+    def _subtract_hole(cx, cy, z_top, diameter, depth):
+        """Create a hole by cylinder-subtract."""
+        work_part = SESSION.Parts.Work
+        target_body = _get_body()
+        d_name = _create_named_expression(work_part, "HOLE_D", diameter)
+        depth_name = _create_named_expression(work_part, "HOLE_DEPTH", depth)
+        return _subtract_cylinder_hole_parametric(target_body, cx, cy, z_top, d_name, depth_name, "-Z")
+
+    # ---- Create/get part ----
+    if output_path:
+        create_part(output_path)
+    work_part = _ensure_work_part()
+
+    # ---- Create NX Expressions ----
+    for name, val in PARAMS.items():
+        _create_named_expression(work_part, name, val)
+
+    # ========== Lower Arm (F3 + F4) ==========
+    global ACTIVE_SKETCH_PLANE
+    ACTIVE_SKETCH_PLANE = "XY"
+    _state["last_curves"] = []
+
+    r = draw_rounded_rectangle(ARM_L, ARM_W, END_R, cx_left=LOWER_LEFT_ARC_X, cy=0.0, z=0.0)
+    lower_curves = list(_state["last_curves"])
+    _state["last_curves"] = []
+    if not lower_curves:
+        return {"ok": False, "error": "Failed to draw lower arm profile"}
+
+    _extrude_profile(lower_curves, 0.0, ARM_T)
+    main_body = _get_body()
+
+    # ========== Cylinder Spacer (F7 + F8) ==========
+    _state["last_curves"] = []
+    x_dir = NXOpen.Vector3d(1.0, 0.0, 0.0)
+    y_dir = NXOpen.Vector3d(0.0, 1.0, 0.0)
+    cyl_circle = work_part.Curves.CreateArc(
+        NXOpen.Point3d(0.0, 0.0, 0.0), x_dir, y_dir, CYL_R, 0.0, 2.0 * math.pi
+    )
+    _state["last_curves"] = [cyl_circle]
+    cyl_curves = [cyl_circle]
+    _state["last_curves"] = []
+
+    builder = work_part.Features.CreateExtrudeBuilder(NXOpen.Features.Feature.Null)
+    try:
+        section = work_part.Sections.CreateSection(0.0095, 0.01, 0.5)
+        rule = work_part.ScRuleFactory.CreateRuleCurveDumb([cyl_circle])
+        section.AddToSection(
+            [rule], cyl_circle,
+            NXOpen.NXObject.Null, NXOpen.NXObject.Null,
+            NXOpen.Point3d(0.0, 0.0, 0.0),
+            NXOpen.Section.Mode.Create, False,
+        )
+        builder.Section = section
+        origin = NXOpen.Point3d(0.0, 0.0, 0.0)
+        builder.Direction = work_part.Directions.CreateDirection(
+            origin, NXOpen.Vector3d(0.0, 0.0, 1.0),
+            NXOpen.SmartObject.UpdateOption.WithinModeling,
+        )
+        builder.Limits.StartExtend.Value.RightHandSide = str(ARM_T)
+        builder.Limits.EndExtend.Value.RightHandSide = str(ARM_T + CYL_H)
+        builder.BooleanOperation.Type = NXOpen.Features.Feature.BooleanType.Unite
+        try:
+            builder.BooleanOperation.SetTarget(main_body)
+        except Exception:
+            pass
+        cyl_feat = builder.CommitFeature()
+        _remember_feature(cyl_feat)
+    finally:
+        builder.Destroy()
+    main_body = _get_body()
+
+    # ========== Upper Arm (F10 + F12) ==========
+    _state["last_curves"] = []
+
+    # Upper arm: right arc at UPPER_RIGHT_ARC_X=12, going left
+    upper_curves_raw = []
+    norm = NXOpen.Vector3d(0.0, 0.0, 1.0)
+    # Right arc: center=(12, 0, Z_CYL_TOP), 270°→90°
+    x_dir = NXOpen.Vector3d(1.0, 0.0, 0.0)
+    y_dir = NXOpen.Vector3d(0.0, 1.0, 0.0)
+    upper_curves_raw.append(work_part.Curves.CreateArc(
+        NXOpen.Point3d(UPPER_RIGHT_ARC_X, 0.0, Z_CYL_TOP), x_dir, y_dir, END_R,
+        math.radians(270.0), math.radians(90.0)
+    ))
+    # Top line: (12, 12, Z_CYL_TOP) → (-54, 12, Z_CYL_TOP)
+    upper_curves_raw.append(work_part.Curves.CreateLine(
+        NXOpen.Point3d(UPPER_RIGHT_ARC_X, ARM_W/2.0, Z_CYL_TOP),
+        NXOpen.Point3d(UPPER_LEFT_ARC_X,  ARM_W/2.0, Z_CYL_TOP)
+    ))
+    # Left arc: center=(-54, 0, Z_CYL_TOP), 90°→270°
+    x_dir = NXOpen.Vector3d(1.0, 0.0, 0.0)
+    y_dir = NXOpen.Vector3d(0.0, 1.0, 0.0)
+    upper_curves_raw.append(work_part.Curves.CreateArc(
+        NXOpen.Point3d(UPPER_LEFT_ARC_X, 0.0, Z_CYL_TOP), x_dir, y_dir, END_R,
+        math.radians(90.0), math.radians(270.0)
+    ))
+    # Bottom line: (-54, -12, Z_CYL_TOP) → (12, -12, Z_CYL_TOP)
+    upper_curves_raw.append(work_part.Curves.CreateLine(
+        NXOpen.Point3d(UPPER_LEFT_ARC_X,  -ARM_W/2.0, Z_CYL_TOP),
+        NXOpen.Point3d(UPPER_RIGHT_ARC_X, -ARM_W/2.0, Z_CYL_TOP)
+    ))
+
+    # Extrude from Z_CYL_TOP to Z_UPPER_TOP
+    _extrude_profile(
+        upper_curves_raw, Z_CYL_TOP, Z_UPPER_TOP,
+        bool_type=NXOpen.Features.Feature.BooleanType.Unite,
+        bool_target=main_body,
+    )
+    main_body = _get_body()
+
+    # ========== Lower Arm Holes (F5) ==========
+    _subtract_hole(LOWER_LEFT_HOLE_X,  0.0, Z_LOWER_TOP, HOLE_D, ARM_T)
+    main_body = _get_body()
+    _subtract_hole(LOWER_RIGHT_HOLE_X, 0.0, Z_LOWER_TOP, HOLE_D, ARM_T)
+    main_body = _get_body()
+
+    # ========== Upper Arm Holes (F13) ==========
+    _subtract_hole(UPPER_RIGHT_HOLE_X, 0.0, Z_UPPER_TOP, HOLE_D, ARM_T)
+    main_body = _get_body()
+    _subtract_hole(UPPER_LEFT_HOLE_X,  0.0, Z_UPPER_TOP, HOLE_D, ARM_T)
+    main_body = _get_body()
+
+    # ========== Edge Blend (F14) ==========
+    try:
+        add_fillet(BLEND_R, "last", "outer_edges")
+        main_body = _get_body()
+    except Exception as e:
+        pass
+
+    # ========== Chamfer (F15) ==========
+    try:
+        add_chamfer(CHAM_O, "last", "top_edges")
+        main_body = _get_body()
+    except Exception as e:
+        pass
+
+    # ========== Fit view ==========
+    fit_view()
+
+    return {
+        "ok": True,
+        "message": (
+            f"Offset linkage arm created: "
+            f"ARM_LENGTH={ARM_L} ARM_WIDTH={ARM_W} ARM_THICK={ARM_T} "
+            f"END_RADIUS={END_R} HOLE_DIA={HOLE_D} HOLE_OFFSET={HOLE_O} "
+            f"CYLINDER_DIA={CYL_D} CYLINDER_HEIGHT={CYL_H} "
+            f"Total height={Z_UPPER_TOP}mm"
+        ),
+    }
+
+
 def extrude(distance, start=0, direction="auto"):
     work_part = SESSION.Parts.Work
     curves = _state.get("last_curves", [])
@@ -719,38 +1260,46 @@ def extrude(distance, start=0, direction="auto"):
     builder = work_part.Features.CreateExtrudeBuilder(
         NXOpen.Features.Feature.Null
     )
-
-    section = work_part.Sections.CreateSection(
-        float(0.0095), float(0.01), float(0.5)
-    )
-    rules = []
-    for curve in curves:
-        rule = SESSION.Parts.Work.ScRuleFactory.CreateRuleCurveDumb(
-            [curve]
+    try:
+        section = work_part.Sections.CreateSection(
+            float(0.0095), float(0.01), float(0.5)
         )
-        rules.append(rule)
-    section.AddToSection(
-        rules, curves[0],
-        NXOpen.NXObject.Null,
-        NXOpen.NXObject.Null,
-        NXOpen.Point3d(0.0, 0.0, 0.0),
-        NXOpen.Section.Mode.Create,
-        False
-    )
-    builder.Section = section
-    resolved_dir = _resolve_direction(direction)
-    dir_vec = _direction_vector(resolved_dir)
-    origin = NXOpen.Point3d(0.0, 0.0, 0.0)
-    builder.Direction = work_part.Directions.CreateDirection(
-        origin,
-        dir_vec,
-        NXOpen.SmartObject.UpdateOption.WithinModeling
-    )
-    builder.Limits.StartExtend.Value.RightHandSide = str(float(start))
-    builder.Limits.EndExtend.Value.RightHandSide = str(float(distance))
-    feature = builder.CommitFeature()
-    builder.Destroy()
-    _remember_feature(feature)
+        rules = []
+        for curve in curves:
+            rule = SESSION.Parts.Work.ScRuleFactory.CreateRuleCurveDumb(
+                [curve]
+            )
+            rules.append(rule)
+        section.AddToSection(
+            rules, curves[0],
+            NXOpen.NXObject.Null,
+            NXOpen.NXObject.Null,
+            NXOpen.Point3d(0.0, 0.0, 0.0),
+            NXOpen.Section.Mode.Create,
+            False
+        )
+        builder.Section = section
+        resolved_dir = _resolve_direction(direction)
+        dir_vec = _direction_vector(resolved_dir)
+        origin = NXOpen.Point3d(0.0, 0.0, 0.0)
+        builder.Direction = work_part.Directions.CreateDirection(
+            origin,
+            dir_vec,
+            NXOpen.SmartObject.UpdateOption.WithinModeling
+        )
+        builder.Limits.StartExtend.Value.RightHandSide = str(float(start))
+        builder.Limits.EndExtend.Value.RightHandSide = str(float(distance))
+        
+        try:
+            builder.BooleanOperation.Type = NXOpen.Features.Feature.BooleanType.Create
+        except Exception:
+            pass
+
+        feature = builder.CommitFeature()
+        _remember_feature(feature)
+    finally:
+        builder.Destroy()
+
     _state["last_curves"] = []
     fit_view()
     return {"ok": True, "message": f"Extruded {float(distance)}mm"}
@@ -890,6 +1439,28 @@ def _make_body_collector(work_part, bodies):
 
 def _set_boolean_inputs(builder, work_part, target_body, tool_bodies):
     tool_body = tool_bodies[0]
+    
+    # Prioritize modern BooleanBuilder targets/tools assignment:
+    if hasattr(builder, "Targets") and (hasattr(builder, "ToolBodyCollector") or hasattr(builder, "BooleanTool")):
+        try:
+            builder.Targets.Add(target_body)
+            
+            collector = work_part.ScCollectors.CreateCollector()
+            rule = work_part.ScRuleFactory.CreateRuleBodyDumb([tool_body], True)
+            _set_collector_rules(collector, [rule])
+            
+            if hasattr(builder, "ToolBodyCollector"):
+                builder.ToolBodyCollector = collector
+                return
+            elif hasattr(builder, "BooleanTool"):
+                boolean_tool = builder.BooleanTool
+                for attr in ("BodyCollector", "ToolBodyCollector"):
+                    if hasattr(boolean_tool, attr):
+                        setattr(boolean_tool, attr, collector)
+                        return
+        except Exception as e:
+            _debug_log("debug_boolean.txt", f"Exception: {e}\n")
+
     for attr in ("Target", "TargetBody"):
         if hasattr(builder, attr):
             try:
@@ -950,10 +1521,39 @@ def _set_boolean_inputs(builder, work_part, target_body, tool_bodies):
 
 def _boolean_operation(operation, target="last", tool="last"):
     work_part = _ensure_work_part()
-    target_body = _resolve_body(target)
-    tool_body = _resolve_body(tool)
+    try:
+        target_body = _resolve_body(target)
+    except Exception:
+        target_body = None
+    try:
+        tool_body = _resolve_body(tool)
+    except Exception:
+        tool_body = None
+
+    # Smart fallback if exactly 2 bodies exist in the part
+    bodies = _iter_bodies(work_part)
+    if len(bodies) == 2:
+        if target_body is None or tool_body is None or target_body == tool_body:
+            last_body = _state.get("last_body")
+            if last_body in bodies:
+                target_body = last_body
+                tool_body = bodies[0] if bodies[1] == last_body else bodies[1]
+            else:
+                target_body = bodies[0]
+                tool_body = bodies[1]
+
+    # Re-evaluate to raise exception if still unresolved
+    if target_body is None:
+        target_body = _resolve_body(target)
+    if tool_body is None:
+        tool_body = _resolve_body(tool)
+
     if target_body == tool_body:
         raise SelectionError("Boolean target and tool resolve to the same body")
+
+    _debug_log("debug_unite_run.txt", f"Operation: {operation}\n"
+               f"target input: {target} -> resolved tag: {target_body.Tag if target_body else None}\n"
+               f"tool input: {tool} -> resolved tag: {tool_body.Tag if tool_body else None}\n")
 
     builder = work_part.Features.CreateBooleanBuilder(
         NXOpen.Features.BooleanFeature.Null
@@ -1031,7 +1631,7 @@ def add_chamfer(offset, body="last", edges="outer_edges"):
 
 
 def add_fillet(radius, body="last", edges="outer_edges"):
-    radius = float(radius)
+    radius = _eval_val(radius)
     if radius <= 0.0:
         return {"ok": False, "error": "Fillet radius must be positive"}
 
@@ -1094,8 +1694,13 @@ def _subtract_cylinder_hole_parametric(target_body, x, y, z, d_name, depth_name,
         builder.Destroy()
 
     tool_body = _state.get("last_body")
+    saved_last_body = _state.get("last_body")
     _state["last_body"] = target_body
-    result = boolean_subtract(_body_name(target_body), _body_name(tool_body))
+    try:
+        result = boolean_subtract(_body_name(target_body), _body_name(tool_body))
+    except Exception as e:
+        _state["last_body"] = saved_last_body
+        return {"ok": False, "error": f"Boolean subtract failed during hole creation: {e}"}
     if result.get("ok"):
         result["message"] = (
             f"Hole created by subtracting a cylindrical tool body"
@@ -1301,12 +1906,11 @@ def pattern_feature(feature_name="last", direction="X", count=3, pitch=10.0):
 # ---------------------------------------------------------------------------
 
 
-def create_real_sketch(plane="XY"):
-    """Create a proper constrained NX Sketch object on a datum plane.
+def create_real_sketch(plane="XY", z_offset=0.0, origin_x=0.0, origin_y=0.0, rotate_z_deg=0.0):
+    """Create a proper constrained NX Sketch object on a plane with offset and rotation.
 
-    The sketch is stored in _state["sketches"][plane] and made the active
-    sketch so that subsequent draw_* calls populate it.  Falls back to the
-    existing lightweight plane-reference if SketchInPlaceBuilder is absent.
+    Stores the sketch plane origin and rotation in _state for curve transformations,
+    and attempts to build a real Sketch on a local Plane object if a sketch builder is found.
     """
     global ACTIVE_SKETCH_PLANE
 
@@ -1317,32 +1921,39 @@ def create_real_sketch(plane="XY"):
     work_part = _ensure_work_part()
     ACTIVE_SKETCH_PLANE = plane
 
-    # --- Try the modern SketchInPlaceBuilder path ---
-    builder_factory = getattr(work_part.Sketches, "CreateNewSketch", None)
+    z_val = _eval_val(z_offset)
+    ox_val = _eval_val(origin_x)
+    oy_val = _eval_val(origin_y)
+    rot_val = _eval_val(rotate_z_deg)
+
+    _state["sketch_origin"] = [ox_val, oy_val, z_val]
+    _state["sketch_rotation"] = rot_val
+    _state["last_curves"] = []
+    _state["active_sketch"] = None
+
+    # --- Try to create a real sketch on a local Plane object ---
+    builder_factory = getattr(work_part.Sketches, "CreateNewSketchInPlaceBuilder", None)
+    if not callable(builder_factory):
+        builder_factory = getattr(work_part.Sketches, "CreateSimpleSketchInPlaceBuilder", None)
+    if not callable(builder_factory):
+        builder_factory = getattr(work_part.Sketches, "CreateNewSketch", None)
     if not callable(builder_factory):
         builder_factory = getattr(work_part.Sketches, "CreateSketchInPlaceBuilder", None)
 
     if callable(builder_factory):
         try:
-            # Build a datum plane to attach the sketch to
-            datum_builder = work_part.Features.CreateDatumPlaneBuilder(
-                NXOpen.Features.Feature.Null
+            origin = NXOpen.Point3d(ox_val, oy_val, z_val)
+            normal = _normal_for_active_plane()
+            plane_obj = work_part.Planes.CreatePlane(
+                origin, normal, NXOpen.SmartObject.UpdateOption.WithinModeling
             )
-            try:
-                datum_builder.SetFixedDatumPlane(_fixed_datum_plane_type(plane))
-                datum_builder.CommitFeature()
-                datum_plane = datum_builder.GetDatum()
-            finally:
-                datum_builder.Destroy()
 
-            # Create sketch on that datum plane
             sketch_builder = builder_factory(NXOpen.Features.Feature.Null)
             try:
-                # API varies: PlaneReference or PlacementFace
                 for attr in ("PlaneReference", "PlacementFace", "SketchOrigin"):
                     if hasattr(sketch_builder, attr):
                         try:
-                            setattr(sketch_builder, attr, datum_plane)
+                            setattr(sketch_builder, attr, plane_obj)
                             break
                         except Exception:
                             pass
@@ -1355,24 +1966,31 @@ def create_real_sketch(plane="XY"):
             _state["sketches"][plane] = feature
             _state["sketches"][sketch_name.lower()] = feature
             _state["active_sketch"] = feature
-            # Reset last_curves so next draw_* accumulates into fresh set
-            _state["last_curves"] = []
             fit_view()
-            return {"ok": True, "message": f"Sketch created on {plane} plane (id={sketch_name})"}
+            return {
+                "ok": True,
+                "message": (
+                    f"Sketch created on {plane} plane (id={sketch_name}) "
+                    f"with offset z={z_val} rotation={rot_val}"
+                ),
+            }
         except Exception as e:
-            # Fall through to lightweight path
-            pass
+            return {"ok": False, "error": f"Failed to create sketch in NX: {e}"}
 
-    # --- Lightweight fallback: just track the plane reference ---
-    _state["last_curves"] = []
-    _state["active_sketch"] = None
-    fit_view()
-    return {"ok": True, "message": f"Sketch created on {plane} plane"}
+    # Mock mode fallback
+    if os.environ.get("NX_MCP_USE_MOCK_NXOPEN") == "1":
+        fit_view()
+        return {
+            "ok": True,
+            "message": f"Sketch created on {plane} plane with offset z={z_val} rotation={rot_val} (mock mode)",
+        }
+
+    return {"ok": False, "error": "NX Sketches API not available on this Siemens NX installation"}
 
 
 def extrude_from_sketch(sketch_name="last", distance=10.0, start=0.0, direction="auto"):
-    distance = float(distance)
-    start = float(start)
+    distance = _eval_val(distance)
+    start = _eval_val(start)
     work_part = _ensure_work_part()
 
     dist_name = _create_named_expression(work_part, "EXTRUDE_DIST", distance)
@@ -1431,7 +2049,13 @@ def extrude_from_sketch(sketch_name="last", distance=10.0, start=0.0, direction=
         builder.Direction = nx_dir
         builder.Limits.StartExtend.Value.RightHandSide = start_name
         builder.Limits.EndExtend.Value.RightHandSide = dist_name
-        builder.BooleanOperation.Type = NXOpen.Features.Feature.BooleanType.Create
+        try:
+            builder.BooleanOperation.Type = NXOpen.GeometricUtilities.BooleanOperation.BooleanType.Create
+        except Exception:
+            try:
+                builder.BooleanOperation.Type = NXOpen.Features.Feature.BooleanType.Create
+            except Exception:
+                pass
 
         feature = builder.CommitFeature()
         _remember_feature(feature)
@@ -1452,22 +2076,52 @@ def add_hole_nx(
     Uses CreateHoleBuilder with SimpleHole type and full parametric expressions.
     Falls back to cylinder-subtract if HoleBuilder is not available.
     """
-    diameter = float(diameter)
-    depth = float(depth)
+    x_val = _eval_val(x)
+    y_val = _eval_val(y)
+    z_val = _eval_val(z)
+    diameter = _eval_val(diameter)
+    depth = _eval_val(depth)
     if diameter <= 0.0 or depth <= 0.0:
         return {"ok": False, "error": "Hole diameter and depth must be positive"}
+
+    # Apply sketch coordinate transformation:
+    pt = _point_on_active_plane(x_val, y_val)
+    x_trans = pt.X
+    y_trans = pt.Y
+    z_trans = z_val
 
     target_body = _resolve_body(target)
     work_part = _ensure_work_part()
     d_name = _create_named_expression(work_part, "HOLE_D", diameter)
     depth_name = _create_named_expression(work_part, "HOLE_DEPTH", depth)
 
+    debug_msg = ""
     resolved_dir = _resolve_hole_direction(direction)
+    if direction == "auto" or not direction:
+        try:
+            import NXOpen.UF
+            uf_session = NXOpen.UF.UFSession.GetUFSession()
+            pt_plus = [float(x_trans), float(y_trans), float(z_trans) + 0.1]
+            pt_minus = [float(x_trans), float(y_trans), float(z_trans) - 0.1]
+            contain_plus = uf_session.Modeling.AskPointContainment(pt_plus, target_body.Tag)
+            contain_minus = uf_session.Modeling.AskPointContainment(pt_minus, target_body.Tag)
+            debug_msg += f"pt_plus={pt_plus} contain_plus={contain_plus} pt_minus={pt_minus} contain_minus={contain_minus}\n"
+            if contain_plus in {1, 3, 4, 5} and contain_minus not in {1, 3, 4, 5}:
+                resolved_dir = "+Z"
+            elif contain_minus in {1, 3, 4, 5} and contain_plus not in {1, 3, 4, 5}:
+                resolved_dir = "-Z"
+        except Exception as e:
+            debug_msg += f"Exception: {e}\n"
+
+    _debug_log("debug_hole.txt", f"x_trans={x_trans} y_trans={y_trans} z_trans={z_trans}\n"
+               f"target_body={target_body} tag={target_body.Tag if target_body else None}\n"
+               f"{debug_msg}"
+               f"final_dir={resolved_dir}\n", mode="w")
 
     builder_factory = getattr(work_part.Features, "CreateHoleBuilder", None)
     if not callable(builder_factory):
         return _subtract_cylinder_hole_parametric(
-            target_body, x, y, z, d_name, depth_name, resolved_dir
+            target_body, x_trans, y_trans, z_trans, d_name, depth_name, resolved_dir
         )
 
     builder = builder_factory(NXOpen.Features.Feature.Null)
@@ -1501,7 +2155,7 @@ def add_hole_nx(
                 except Exception:
                     pass
 
-        point = NXOpen.Point3d(float(x), float(y), float(z))
+        point = NXOpen.Point3d(float(x_trans), float(y_trans), float(z_trans))
         if hasattr(builder, "Position"):
             try:
                 builder.Position = point
@@ -1835,8 +2489,8 @@ def revolve_cut(axis="auto", angle_deg=360.0, target="last"):
             _state["last_curves"] = []
             fit_view()
             return {"ok": True, "message": f"Revolve-cut {angle_deg}° about {resolved_axis}"}
-        except Exception:
-            pass  # fall through to UF path + subtract
+        except Exception as e:
+            sys.stderr.write(f"revolve_cut builder failed, falling back to revolve+subtract: {e}\n")
 
     # --- Fallback: revolve to solid then boolean subtract ---
     revolve_result = revolve(resolved_axis, angle_deg)
@@ -1845,8 +2499,13 @@ def revolve_cut(axis="auto", angle_deg=360.0, target="last"):
     cut_body = _state.get("last_body")
     if cut_body is None:
         return {"ok": False, "error": "Revolve succeeded but no body was recorded for subtraction"}
+    saved_last_body = _state.get("last_body")
     _state["last_body"] = target_body
-    result = boolean_subtract(_body_name(target_body), _body_name(cut_body))
+    try:
+        result = boolean_subtract(_body_name(target_body), _body_name(cut_body))
+    except Exception as e:
+        _state["last_body"] = saved_last_body
+        return {"ok": False, "error": f"Boolean subtract failed during revolve-cut: {e}"}
     if result.get("ok"):
         result["message"] = f"Revolve-cut {angle_deg}° about {resolved_axis}"
     return result
@@ -1894,13 +2553,16 @@ def extrude_cut(distance, start=0.0, target="last", direction="auto"):
         builder.Limits.StartExtend.Value.RightHandSide = start_name
         builder.Limits.EndExtend.Value.RightHandSide = dist_name
 
-        builder.BooleanOperation.Type = (
-            NXOpen.Features.Feature.BooleanType.Subtract
-        )
+        target_set = False
         try:
             builder.BooleanOperation.SetTarget(target_body)
-        except Exception:
-            pass
+            target_set = True
+        except Exception as e:
+            sys.stderr.write(f"extrude_cut SetTarget failed, changing to Create for manual subtraction: {e}\n")
+            try:
+                builder.BooleanOperation.Type = NXOpen.Features.Feature.BooleanType.Create
+            except Exception:
+                pass
 
         feature = builder.CommitFeature()
         _remember_feature(feature)
@@ -1909,6 +2571,22 @@ def extrude_cut(distance, start=0.0, target="last", direction="auto"):
 
     _state["last_curves"] = []
     fit_view()
+
+    if not target_set:
+        cut_body = _state.get("last_body")
+        if cut_body is None:
+            return {"ok": False, "error": "Extrude-cut solid creation succeeded but no body was recorded"}
+        saved_last_body = _state.get("last_body")
+        _state["last_body"] = target_body
+        try:
+            result = boolean_subtract(_body_name(target_body), _body_name(cut_body))
+        except Exception as e:
+            _state["last_body"] = saved_last_body
+            return {"ok": False, "error": f"Boolean subtract failed during extrude-cut: {e}"}
+        if result.get("ok"):
+            result["message"] = f"Extrude-cut {distance}mm from '{_body_name(target_body)}' along {direction}"
+        return result
+
     return {
         "ok": True,
         "message": f"Extrude-cut {distance}mm from '{_body_name(target_body)}' along {direction}",
@@ -2894,415 +3572,295 @@ def refit_face(body="last"):
     return _execute_surface_builder("CreateRefitFaceBuilder", config, "Refitted face geometry")
 
 
+def export_step(output_path):
+    try:
+        exp = SESSION.DexManager.CreateStepCreator()
+        exp.ObjectTypes.Solids = True
+        exp.OutputFile = str(output_path)
+        exp.Commit()
+        exp.Destroy()
+        return {"ok": True, "message": f"Exported STEP: {output_path}"}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to export STEP: {e}"}
+
+
+def export_stl(output_path):
+    try:
+        exp = SESSION.DexManager.CreateStlCreator()
+        exp.OutputFile = str(output_path)
+        exp.Commit()
+        exp.Destroy()
+        return {"ok": True, "message": f"Exported STL: {output_path}"}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to export STL: {e}"}
+
+
+def set_view(view_name="ISO"):
+    view_name = str(view_name).upper()
+    valid = {"TOP", "FRONT", "RIGHT", "BACK", "LEFT", "BOTTOM", "ISO"}
+    if view_name not in valid:
+        return {"ok": False, "error": f"Invalid view '{view_name}'"}
+    try:
+        work_part = SESSION.Parts.Work
+        if work_part is None:
+            return {"ok": False, "error": "No work part is open"}
+        work_part.ModelingViews.WorkView.Orient(view_name)
+        return {"ok": True, "message": f"View set to {view_name}"}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to set view: {e}"}
+
+
+def list_features():
+    try:
+        work_part = SESSION.Parts.Work
+        if work_part is None:
+            return {"ok": True, "message": "Features: none"}
+        features = list(work_part.Features.ToArray() or [])
+        names = [_feature_name(f) for f in features]
+        return {"ok": True, "message": "Features: " + (", ".join(names) if names else "none")}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to list features: {e}"}
+
+
+def get_bounding_box(body_reference="last"):
+    try:
+        body = _resolve_body(body_reference)
+        min_pt, max_pt = _body_bounds(body)
+        return {
+            "ok": True,
+            "message": (
+                f"Bounding box for body '{_body_name(body)}': "
+                f"Min=({min_pt[0]:.2f}, {min_pt[1]:.2f}, {min_pt[2]:.2f}), "
+                f"Max=({max_pt[0]:.2f}, {max_pt[1]:.2f}, {max_pt[2]:.2f})"
+            )
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to get bounding box: {e}"}
+
+
+def add_component(part_path, x=0.0, y=0.0, z=0.0):
+    try:
+        work_part = SESSION.Parts.Work
+        if work_part is None:
+            return {"ok": False, "error": "No work part is open"}
+        part_name = os.path.basename(part_path)
+        origin = NXOpen.Point3d(float(x), float(y), float(z))
+        builder = work_part.AssemblyManager.CreateAddComponentBuilder()
+        try:
+            builder.SetComponentAnchor(NXOpen.Assemblies.AddComponentBuilder.ComponentAnchorType.Origin)
+            builder.SetLocationType(NXOpen.Assemblies.AddComponentBuilder.LocationType.AbsoluteCoordinates)
+            loaded_part = SESSION.Parts.Open(part_path)
+            builder.PartToInsert = loaded_part
+            builder.SetPosition(origin)
+            builder.Commit()
+        finally:
+            builder.Destroy()
+        fit_view()
+        return {"ok": True, "message": f"Added '{part_name}' at ({x},{y},{z})"}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to add component: {e}"}
+
+
+def list_components():
+    try:
+        work_part = SESSION.Parts.Work
+        if work_part is None:
+            return {"ok": True, "message": "Components: none"}
+        root = work_part.ComponentAssembly.RootComponent
+        if root is None:
+            return {"ok": True, "message": "Components: none"}
+        comps = list(root.GetChildren() or [])
+        names = [c.DisplayName for c in comps]
+        return {"ok": True, "message": "Components: " + (", ".join(names) if names else "none")}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to list components: {e}"}
+
+
+def reposition_component(component_name, x, y, z):
+    try:
+        work_part = SESSION.Parts.Work
+        if work_part is None:
+            return {"ok": False, "error": "No work part is open"}
+        root = work_part.ComponentAssembly.RootComponent
+        if root is None:
+            return {"ok": False, "error": "No root component in assembly"}
+        target = None
+        for child in list(root.GetChildren() or []):
+            if child.DisplayName.lower() == component_name.lower() or child.Name.lower() == component_name.lower():
+                target = child
+                break
+        if not target:
+            return {"ok": False, "error": f"Component '{component_name}' not found"}
+        origin = NXOpen.Point3d(float(x), float(y), float(z))
+        target.SetPosition(origin)
+        fit_view()
+        return {"ok": True, "message": f"Repositioned '{component_name}' to ({x},{y},{z})"}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to reposition component: {e}"}
+
+
+def mate_components(comp1, face1, comp2, face2, constraint_type="Coincident"):
+    try:
+        work_part = SESSION.Parts.Work
+        if work_part is None:
+            return {"ok": False, "error": "No work part is open"}
+        builder = work_part.AssemblyManager.CreateAssemblyConstraintBuilder()
+        try:
+            builder.ConstraintType = getattr(NXOpen.Positioning.Constraint.Type, constraint_type, NXOpen.Positioning.Constraint.Type.Coincident)
+            builder.Commit()
+        finally:
+            builder.Destroy()
+        return {"ok": True, "message": f"Mated components: {constraint_type} constraint created"}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to mate components: {e}"}
+
+def measure_body_volume(body_reference="last"):
+    try:
+        body = _resolve_body(body_reference)
+        work_part = SESSION.Parts.Work
+        if work_part is None:
+            return {"ok": False, "error": "No work part is open"}
+        
+        mb = work_part.MeasureManager.CreateMeasureBodies(
+            NXOpen.Part.Units.Millimeters,
+            0.01,
+            [body]
+        )
+        volume = mb.Volume
+        mb.Dispose()
+        return {
+            "ok": True,
+            "message": f"Volume of body '{_body_name(body)}': {volume:.4f} mm³ ({volume/1000.0:.4f} cm³)",
+            "volume": volume
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to measure body volume: {e}"}
+
+
+def create_offset_plane(base_plane="XY", offset=0.0):
+    """Create an offset datum plane from a base plane."""
+    offset = float(offset)
+    work_part = _ensure_work_part()
+    normal = _normal_for_plane(base_plane)
+    origin_map = {
+        "XY": NXOpen.Point3d(0.0, 0.0, offset),
+        "XZ": NXOpen.Point3d(0.0, offset, 0.0),
+        "YZ": NXOpen.Point3d(offset, 0.0, 0.0),
+    }
+    origin = origin_map.get(base_plane.upper(), NXOpen.Point3d(0.0, 0.0, offset))
+
+    builder = work_part.Features.CreateDatumPlaneBuilder(NXOpen.Features.Feature.Null)
+    try:
+        plane_obj = work_part.Datums.CreateFixedDatumPlane(origin, normal)
+        builder.PlaneReference = plane_obj
+        feature = builder.CommitFeature()
+        _remember_feature(feature)
+    finally:
+        builder.Destroy()
+
+    return {"ok": True, "message": f"Offset datum plane from {base_plane} at offset {offset}mm"}
+
+
+def add_constraint_horizontal(curve_index=0):
+    """Add a horizontal constraint to a sketch curve by index."""
+    curves = _state.get("last_curves", [])
+    if not curves or curve_index >= len(curves):
+        return {"ok": False, "error": f"No curve at index {curve_index}"}
+    active_sketch = _state.get("active_sketch")
+    if active_sketch is None:
+        return {"ok": False, "error": "No active sketch"}
+    try:
+        geom = NXOpen.Sketch.ConstraintGeometry()
+        geom.Geometry = curves[curve_index]
+        geom.PointType = NXOpen.SketchConstraintPointType.NotSet
+        active_sketch.CreateHorizontalConstraint(geom)
+        return {"ok": True, "message": f"Horizontal constraint added to curve {curve_index}"}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to add horizontal constraint: {e}"}
+
+
+def add_constraint_vertical(curve_index=0):
+    """Add a vertical constraint to a sketch curve by index."""
+    curves = _state.get("last_curves", [])
+    if not curves or curve_index >= len(curves):
+        return {"ok": False, "error": f"No curve at index {curve_index}"}
+    active_sketch = _state.get("active_sketch")
+    if active_sketch is None:
+        return {"ok": False, "error": "No active sketch"}
+    try:
+        geom = NXOpen.Sketch.ConstraintGeometry()
+        geom.Geometry = curves[curve_index]
+        geom.PointType = NXOpen.SketchConstraintPointType.NotSet
+        active_sketch.CreateVerticalConstraint(geom)
+        return {"ok": True, "message": f"Vertical constraint added to curve {curve_index}"}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to add vertical constraint: {e}"}
+
+
+def add_constraint_fixed(curve_index=0):
+    """Add a fixed/anchor constraint to a sketch curve by index."""
+    curves = _state.get("last_curves", [])
+    if not curves or curve_index >= len(curves):
+        return {"ok": False, "error": f"No curve at index {curve_index}"}
+    active_sketch = _state.get("active_sketch")
+    if active_sketch is None:
+        return {"ok": False, "error": "No active sketch"}
+    try:
+        geom = NXOpen.Sketch.ConstraintGeometry()
+        geom.Geometry = curves[curve_index]
+        geom.PointType = NXOpen.SketchConstraintPointType.NotSet
+        active_sketch.CreateFixedConstraint(geom)
+        return {"ok": True, "message": f"Fixed constraint added to curve {curve_index}"}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to add fixed constraint: {e}"}
+
+
 def dispatch(command):
+    import inspect
     tool = command.get("tool")
     args = command.get("args", {})
 
-    if tool == "create_part":
-        return create_part(args["filename"])
-    if tool == "open_part":
-        return open_part(args["filepath"])
-    if tool == "save_part":
-        return save_part()
-    if tool == "create_sketch":
-        return create_sketch(args.get("plane", "XY"))
-    if tool == "draw_line":
-        return draw_line(args["x1"], args["y1"], args["x2"], args["y2"])
-    if tool == "draw_arc":
-        return draw_arc(args["cx"], args["cy"], args["radius"], args["start_angle"], args["end_angle"])
-    if tool == "draw_rectangle":
-        return draw_rectangle(args["x"], args["y"], args["width"], args["height"])
-    if tool == "draw_circle":
-        return draw_circle(args["cx"], args["cy"], args["radius"])
-    if tool == "draw_cylinder_profile":
-        return draw_cylinder_profile(args["outer_radius"], args["inner_radius"])
-    if tool == "create_cube":
-        return create_cube(
-            args.get("size", 10.0),
-            args.get("x", 0.0),
-            args.get("y", 0.0),
-            args.get("z", 0.0),
-        )
-    if tool == "create_cuboid":
-        return create_cuboid(
-            args.get("length", 40.0),
-            args.get("width", 25.0),
-            args.get("height", 20.0),
-            args.get("x", 0.0),
-            args.get("y", 0.0),
-            args.get("z", 0.0),
-        )
-    if tool == "create_cylinder":
-        return create_cylinder(
-            args.get("radius", 10.0),
-            args.get("height", 20.0),
-            args.get("x", 0.0),
-            args.get("y", 0.0),
-            args.get("z", 0.0),
-            args.get("direction", "Z"),
-        )
-    if tool == "create_two_cuboids":
-        return create_two_cuboids()
-    if tool == "extrude":
-        return extrude(args["distance"], args.get("start", 0), args.get("direction", "auto"))
-    if tool == "revolve":
-        return revolve(args.get("axis", "auto"), args.get("angle_deg", 360.0))
-    if tool == "boolean_unite":
-        return boolean_unite(args.get("target", "last"), args.get("tool", "last"))
-    if tool == "boolean_subtract":
-        return boolean_subtract(args.get("target", "last"), args.get("tool", "last"))
-    if tool == "add_fillet":
-        return add_fillet(
-            args["radius"],
-            args.get("body", "last"),
-            args.get("edges", "outer_edges"),
-        )
-    if tool == "add_chamfer":
-        return add_chamfer(
-            args["offset"],
-            args.get("body", "last"),
-            args.get("edges", "outer_edges"),
-        )
-    if tool == "add_hole":
-        return add_hole(
-            args["x"],
-            args["y"],
-            args["z"],
-            args["diameter"],
-            args["depth"],
-            args.get("target", "last"),
-            args.get("direction", "auto"),
-            args.get("placement_face", "top"),
-        )
-    if tool == "mirror_feature":
-        return mirror_feature(args.get("feature_name", "last"), args.get("plane", "XZ"))
-    if tool == "pattern_feature":
-        return pattern_feature(
-            args.get("feature_name", "last"),
-            args.get("direction", "X"),
-            args.get("count", 3),
-            args.get("pitch", 10.0),
-        )
-    if tool == "edit_expression":
-        return edit_expression(args["name"], args["value"])
-    if tool == "fit_view":
-        return fit_view()
-    # --- New tools ---
-    if tool == "create_real_sketch":
-        return create_real_sketch(args.get("plane", "XY"))
-    if tool == "extrude_from_sketch":
-        return extrude_from_sketch(
-            args.get("sketch_name", "last"),
-            args.get("distance", 10.0),
-            args.get("start", 0.0),
-            args.get("direction", "auto"),
-        )
-    if tool == "add_hole_nx":
-        return add_hole_nx(
-            args["x"], args["y"], args["z"],
-            args["diameter"], args["depth"],
-            args.get("target", "last"),
-            args.get("direction", "auto"),
-            args.get("hole_type", "simple"),
-        )
-    if tool == "create_rib":
-        return create_rib(
-            args["thickness"],
-            args.get("direction", "auto"),
-            args.get("body", "last"),
-            args.get("flip", False),
-        )
-    if tool == "pattern_circular":
-        return pattern_circular(
-            args.get("feature_name", "last"),
-            args.get("axis", "auto"),
-            args.get("count", 4),
-            args.get("angle_total", 360.0),
-        )
-    if tool == "edge_blend":
-        return edge_blend(
-            args["radius"],
-            args.get("body", "last"),
-            args.get("edges", "outer_edges"),
-        )
-    if tool == "chamfer_edges":
-        return chamfer_edges(
-            args["offset"],
-            args.get("body", "last"),
-            args.get("edges", "outer_edges"),
-        )
-    if tool == "revolve_cut":
-        return revolve_cut(
-            args.get("axis", "auto"),
-            args.get("angle_deg", 360.0),
-            args.get("target", "last"),
-        )
-    if tool == "extrude_cut":
-        return extrude_cut(
-            args["distance"],
-            args.get("start", 0.0),
-            args.get("target", "last"),
-            args.get("direction", "auto"),
-        )
-    # --- Standard Surface Tools ---
-    if tool == "create_base_surface":
-        return create_base_surface(args.get("plane", "XY"), args.get("width", 50.0), args.get("height", 50.0))
-    if tool == "extrude_surface":
-        return extrude_surface(args["distance"], args.get("start", 0.0), args.get("direction", "auto"))
-    if tool == "create_swept":
-        return create_swept(args.get("section", "last"), args.get("guide", "last"))
-    if tool == "create_through_curves":
-        return create_through_curves(args.get("sections", "last"))
-    if tool == "create_through_curve_mesh":
-        return create_through_curve_mesh(args.get("primary", "last"), args.get("cross", "last"))
-    if tool == "add_face_blend":
-        return add_face_blend(
-            args["face1_x"], args["face1_y"], args["face1_z"],
-            args["face2_x"], args["face2_y"], args["face2_z"],
-            args.get("radius", 5.0), args.get("body", "last")
-        )
-    if tool == "offset_surface":
-        return offset_surface(
-            args["distance"], args.get("body", "last"),
-            args.get("face_x", 0.0), args.get("face_y", 0.0), args.get("face_z", 0.0)
-        )
-    if tool == "thicken_sheet":
-        return thicken_sheet(args["thickness"], args.get("direction", "auto"), args.get("body", "last"))
-    if tool == "sweep_along_guide":
-        return sweep_along_guide(args.get("section", "last"), args.get("guide", "last"))
-    if tool == "variational_sweep":
-        return variational_sweep(args.get("section", "last"), args.get("guide", "last"))
-    if tool == "create_tube":
-        return create_tube(args.get("guide", "last"), args.get("outer_diameter", 10.0), args.get("inner_diameter", 0.0))
-    if tool == "swept_volume":
-        return swept_volume(args.get("tool_body", "last"), args.get("guide", "last"))
-    if tool == "create_ruled":
-        return create_ruled(args.get("section1", "last"), args.get("section2", "last"))
-    if tool == "n_sided_surface":
-        return n_sided_surface(args.get("boundary", "last"))
-    if tool == "fill_surface":
-        return fill_surface(args.get("boundary", "last"))
-    if tool == "bounded_plane":
-        return bounded_plane(args.get("boundary", "last"))
-    if tool == "patch_openings":
-        return patch_openings(args.get("body", "last"), args.get("boundary", "last"))
-    if tool == "variable_offset":
-        return variable_offset(
-            args.get("distance_start", 2.0), args.get("distance_end", 5.0),
-            args.get("body", "last"), args.get("face_x", 0.0), args.get("face_y", 0.0), args.get("face_z", 0.0)
-        )
-    if tool == "sheet_from_curve":
-        return sheet_from_curve(args.get("boundary", "last"))
+    # Parameter normalization / compatibility mapping
+    if "z_offset" in args and "z" not in args:
+        args["z"] = args["z_offset"]
+    if "offset" in args and "radius" not in args and tool in ("edge_blend", "add_fillet"):
+        args["radius"] = args["offset"]
+    if "radius" in args and "offset" not in args and tool in ("chamfer_edges", "add_chamfer"):
+        args["offset"] = args["radius"]
 
-    # --- Advanced Surface Tools ---
-    if tool == "law_extension":
-        return law_extension(
-            args.get("distance", 10.0), args.get("angle", 45.0),
-            args.get("boundary_edge_x", 0.0), args.get("boundary_edge_y", 0.0), args.get("boundary_edge_z", 0.0),
-            args.get("body", "last")
-        )
-    if tool == "studio_surface":
-        return studio_surface(args.get("section1", "last"), args.get("section2", "last"))
-    if tool == "styled_sweep":
-        return styled_sweep(args.get("section", "last"), args.get("guide", "last"))
-    if tool == "section_surface":
-        return section_surface(args.get("section1", "last"), args.get("section2", "last"))
-    if tool == "aesthetic_face_blend":
-        return aesthetic_face_blend(
-            args.get("radius", 5.0), args.get("body", "last"),
-            args.get("face1_x", 0.0), args.get("face1_y", 0.0), args.get("face1_z", 0.0),
-            args.get("face2_x", 0.0), args.get("face2_y", 0.0), args.get("face2_z", 0.0)
-        )
-    if tool == "bridge_surface":
-        return bridge_surface(
-            args.get("edge1_x", 0.0), args.get("edge1_y", 0.0), args.get("edge1_z", 0.0),
-            args.get("edge2_x", 0.0), args.get("edge2_y", 0.0), args.get("edge2_z", 0.0),
-            args.get("body", "last")
-        )
-    if tool == "blend_corner":
-        return blend_corner(
-            args.get("radius", 5.0),
-            args.get("corner_vertex_x", 0.0), args.get("corner_vertex_y", 0.0), args.get("corner_vertex_z", 0.0),
-            args.get("body", "last")
-        )
-    if tool == "styled_corner":
-        return styled_corner(
-            args.get("corner_vertex_x", 0.0), args.get("corner_vertex_y", 0.0), args.get("corner_vertex_z", 0.0),
-            args.get("body", "last")
-        )
-    if tool == "four_point_surface":
-        return four_point_surface(
-            args["x1"], args["y1"], args["z1"], args["x2"], args["y2"], args["z2"],
-            args["x3"], args["y3"], args["z3"], args["x4"], args["y4"], args["z4"]
-        )
-    if tool == "rapid_surfacing":
-        return rapid_surfacing(args.get("boundary", "last"))
-    if tool == "fit_surface":
-        return fit_surface(
-            args.get("target_face_x", 0.0), args.get("target_face_y", 0.0), args.get("target_face_z", 0.0),
-            args.get("body", "last")
-        )
-    if tool == "variable_offset_face":
-        return variable_offset_face(
-            args.get("distance", 5.0), args.get("body", "last"),
-            args.get("face_x", 0.0), args.get("face_y", 0.0), args.get("face_z", 0.0)
-        )
-    if tool == "extension_surface":
-        return extension_surface(
-            args.get("distance", 10.0),
-            args.get("boundary_edge_x", 0.0), args.get("boundary_edge_y", 0.0), args.get("boundary_edge_z", 0.0),
-            args.get("body", "last")
-        )
-    if tool == "silhouette_flange":
-        return silhouette_flange(
-            args.get("distance", 10.0), args.get("body", "last"),
-            args.get("face_x", 0.0), args.get("face_y", 0.0), args.get("face_z", 0.0)
-        )
-    if tool == "face_pairs":
-        return face_pairs(args.get("distance", 2.0), args.get("body", "last"))
-    if tool == "user_defined_surface":
-        return user_defined_surface(args.get("boundary", "last"))
-    if tool == "offset_surface_advanced":
-        return offset_surface_advanced(
-            args.get("distance", 5.0), args.get("body", "last"),
-            args.get("face_x", 0.0), args.get("face_y", 0.0), args.get("face_z", 0.0)
-        )
-    if tool == "bisector_surface":
-        return bisector_surface(
-            args.get("face1_x", 0.0), args.get("face1_y", 0.0), args.get("face1_z", 0.0),
-            args.get("face2_x", 0.0), args.get("face2_y", 0.0), args.get("face2_z", 0.0),
-            args.get("body", "last")
-        )
-    if tool == "surface_from_poles":
-        return surface_from_poles(args.get("boundary", "last"))
-    if tool == "surface_through_points":
-        return surface_through_points(args.get("boundary", "last"))
-    if tool == "ribbon_builder":
-        return ribbon_builder(
-            args.get("width", 10.0),
-            args.get("boundary_edge_x", 0.0), args.get("boundary_edge_y", 0.0), args.get("boundary_edge_z", 0.0),
-            args.get("body", "last")
-        )
+    func = globals().get(tool)
+    if not func or not callable(func):
+        return {"ok": False, "error": f"Unknown bridge tool: {tool}"}
 
-    # --- Combine Tools ---
-    if tool == "boolean_combine":
-        return boolean_combine(args.get("operation", "intersect"), args.get("target", "last"), args.get("tool", "last"))
-    if tool == "trim_sheet":
-        return trim_sheet(args.get("target_body", "last"), args.get("boundary_sketch", "last"))
-    if tool == "extend_sheet":
-        return extend_sheet(
-            args.get("distance", 10.0),
-            args.get("boundary_edge_x", 0.0), args.get("boundary_edge_y", 0.0), args.get("boundary_edge_z", 0.0),
-            args.get("body", "last")
-        )
-    if tool == "trim_and_extend":
-        return trim_and_extend(args.get("target_body", "last"), args.get("tool_body", "last"))
-    if tool == "sew_sheets":
-        return sew_sheets(args.get("target_sheet", "last"), args.get("tool_sheets", "last"))
-    if tool == "split_body":
-        return split_body(
-            args.get("target_body", "last"),
-            args.get("tool_face_x", 0.0), args.get("tool_face_y", 0.0), args.get("tool_face_z", 0.0)
-        )
-    if tool == "divide_face":
-        return divide_face(
-            args.get("target_face_x", 0.0), args.get("target_face_y", 0.0), args.get("target_face_z", 0.0),
-            args.get("boundary_sketch", "last"), args.get("body", "last")
-        )
-    if tool == "snip_surface":
-        return snip_surface(
-            args.get("target_face_x", 0.0), args.get("target_face_y", 0.0), args.get("target_face_z", 0.0),
-            args.get("body", "last")
-        )
-    if tool == "untrim_sheet":
-        return untrim_sheet(
-            args.get("target_edge_x", 0.0), args.get("target_edge_y", 0.0), args.get("target_edge_z", 0.0),
-            args.get("body", "last")
-        )
-    if tool == "delete_edge":
-        return delete_edge(
-            args.get("target_edge_x", 0.0), args.get("target_edge_y", 0.0), args.get("target_edge_z", 0.0),
-            args.get("body", "last")
-        )
-    if tool == "emboss_body":
-        return emboss_body(args.get("target_body", "last"), args.get("boundary_sketch", "last"), args.get("depth", 5.0))
-    if tool == "patch_body":
-        return patch_body(args.get("target_body", "last"), args.get("tool_sheet", "last"))
-    if tool == "unsew_sheets":
-        return unsew_sheets(
-            args.get("target_body", "last"),
-            args.get("split_edge_x", 0.0), args.get("split_edge_y", 0.0), args.get("split_edge_z", 0.0)
-        )
-    if tool == "make_solid":
-        return make_solid(args.get("target_sheet", "last"))
-    if tool == "sheet_boundary_analysis":
-        return sheet_boundary_analysis(args.get("body", "last"))
-    if tool == "quilt_sheets":
-        return quilt_sheets(args.get("target_sheet", "last"))
+    try:
+        sig = inspect.signature(func)
+        bound_args = {}
+        for name, param in sig.parameters.items():
+            if name in args:
+                bound_args[name] = args[name]
+            elif param.default is not inspect.Parameter.empty:
+                bound_args[name] = param.default
+            else:
+                return {"ok": False, "error": f"Missing required parameter '{name}' for tool '{tool}'"}
 
-    # --- Edit Tools ---
-    if tool == "reverse_normal":
-        return reverse_normal(args.get("body", "last"))
-    if tool == "local_untrim_extend":
-        return local_untrim_extend(
-            args.get("boundary_edge_x", 0.0), args.get("boundary_edge_y", 0.0), args.get("boundary_edge_z", 0.0),
-            args.get("distance", 10.0), args.get("body", "last")
-        )
-    if tool == "replace_edge":
-        return replace_edge(
-            args.get("target_edge_x", 0.0), args.get("target_edge_y", 0.0), args.get("target_edge_z", 0.0),
-            args.get("tool_sketch", "last"), args.get("body", "last")
-        )
-    if tool == "x_form":
-        return x_form(args.get("body", "last"))
-    if tool == "i_form":
-        return i_form(args.get("body", "last"))
-    if tool == "match_edge":
-        return match_edge(
-            args.get("target_edge_x", 0.0), args.get("target_edge_y", 0.0), args.get("target_edge_z", 0.0),
-            args.get("tool_edge_x", 0.0), args.get("tool_edge_y", 0.0), args.get("tool_edge_z", 0.0),
-            args.get("body", "last")
-        )
-    if tool == "edge_symmetry":
-        return edge_symmetry(
-            args.get("target_edge_x", 0.0), args.get("target_edge_y", 0.0), args.get("target_edge_z", 0.0),
-            args.get("body", "last")
-        )
-    if tool == "global_shaping":
-        return global_shaping(args.get("body", "last"))
-    if tool == "global_deformation":
-        return global_deformation(args.get("body", "last"))
-    if tool == "flattening_forming":
-        return flattening_forming(args.get("body", "last"))
-    if tool == "heal_surface":
-        return heal_surface(args.get("body", "last"))
-    if tool == "edit_uv_direction":
-        return edit_uv_direction(args.get("body", "last"))
-    if tool == "enlarge_face":
-        return enlarge_face(
-            args.get("body", "last"), args.get("distance", 5.0),
-            args.get("face_x", 0.0), args.get("face_y", 0.0), args.get("face_z", 0.0)
-        )
-    if tool == "snip_into_patches":
-        return snip_into_patches(args.get("body", "last"))
-    if tool == "smooth_poles":
-        return smooth_poles(args.get("body", "last"))
-    if tool == "refit_face":
-        return refit_face(args.get("body", "last"))
-
-    return {"ok": False, "error": f"Unknown bridge tool: {tool}"}
+        return func(**bound_args)
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to execute {tool}: {e}"}
 
 
 def edit_expression(name, value):
     work_part = _ensure_work_part()
     try:
         expression = work_part.Expressions.FindObject(name)
+        expression.RightHandSide = str(value)
     except Exception:
-        return {"ok": False, "error": f"Expression '{name}' not found in the work part"}
+        try:
+            expression = work_part.Expressions.CreateExpression("Number", f"{name} = {value}")
+        except Exception as e:
+            return {"ok": False, "error": f"Failed to create expression '{name}': {e}"}
 
     session = NXOpen.Session.GetSession()
     undo_mark = session.SetUndoMark(NXOpen.Session.MarkVisibility.Invisible, "Edit Expression")
-    expression.RightHandSide = str(value)
 
     try:
         session.UpdateManager.DoUpdate(undo_mark)
@@ -3322,10 +3880,26 @@ def edit_expression(name, value):
 
 
 def handle_line(line):
+    # Backup state
+    old_state = dict(_state)
+    old_state["features"] = dict(_state.get("features", {}))
+    old_state["bodies"] = dict(_state.get("bodies", {}))
+    old_state["sketches"] = dict(_state.get("sketches", {}))
+    if "last_curves" in _state:
+        old_state["last_curves"] = list(_state["last_curves"])
+
     try:
         command = json.loads(line)
-        return dispatch(command)
+        res = dispatch(command)
+        if isinstance(res, dict) and not res.get("ok"):
+            # Command returned error status, restore state
+            _state.clear()
+            _state.update(old_state)
+        return res
     except Exception as exc:
+        # Command raised exception, restore state
+        _state.clear()
+        _state.update(old_state)
         return {
             "ok": False,
             "error": str(exc),
@@ -3364,60 +3938,85 @@ def run_socket_bridge(config_path):
     except Exception:
         ui = None
 
-    while config_path.exists():
-        if ui:
-            try:
-                ui.ProcessDeviceEvents()
-            except Exception:
-                pass
+    last_health_log = time.time()
+    HEALTH_LOG_INTERVAL = 300  # Log health every 5 minutes
+    CLIENT_TIMEOUT = 120  # Disconnect idle clients after 2 minutes
 
-        try:
-            client_sock, client_addr = server.accept()
-            client_sock.setblocking(False)
-            clients.append((client_sock, ""))
-            sys.stderr.write(f"Connected client: {client_addr}\n")
-        except BlockingIOError:
-            pass
-        except Exception:
-            pass
-
-        still_connected = []
-        for client_sock, buffer in clients:
-            try:
-                data = client_sock.recv(4096)
-                if not data:
-                    client_sock.close()
-                    continue
-                buffer += data.decode("utf-8")
-
-                while "\n" in buffer:
-                    line, buffer = buffer.split("\n", 1)
-                    line = line.strip()
-                    if not line:
-                        continue
-
-                    result = handle_line(line)
-                    response = json.dumps(result) + "\n"
-                    client_sock.sendall(response.encode("utf-8"))
-
-                still_connected.append((client_sock, buffer))
-            except BlockingIOError:
-                still_connected.append((client_sock, buffer))
-            except Exception as e:
-                sys.stderr.write(f"Error handling client: {e}\n")
+    try:
+        while config_path.exists():
+            if ui:
                 try:
-                    client_sock.close()
+                    ui.ProcessDeviceEvents()
                 except Exception:
                     pass
 
-        clients = still_connected
-        time.sleep(0.01)
+            # Periodic health log
+            now = time.time()
+            if now - last_health_log > HEALTH_LOG_INTERVAL:
+                sys.stderr.write(f"Socket bridge alive: {len(clients)} connected client(s)\n")
+                last_health_log = now
 
-    server.close()
+            try:
+                client_sock, client_addr = server.accept()
+                client_sock.setblocking(False)
+                client_sock.settimeout(CLIENT_TIMEOUT)
+                clients.append((client_sock, "", time.time()))
+                sys.stderr.write(f"Connected client: {client_addr}\n")
+            except BlockingIOError:
+                pass
+            except Exception:
+                pass
+
+            still_connected = []
+            for client_sock, buffer, last_activity in clients:
+                try:
+                    # Check for idle timeout
+                    if time.time() - last_activity > CLIENT_TIMEOUT:
+                        sys.stderr.write("Disconnecting idle client\n")
+                        client_sock.close()
+                        continue
+
+                    data = client_sock.recv(4096)
+                    if not data:
+                        client_sock.close()
+                        continue
+                    buffer += data.decode("utf-8")
+                    last_activity = time.time()
+
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+
+                        result = handle_line(line)
+                        response = json.dumps(result) + "\n"
+                        client_sock.sendall(response.encode("utf-8"))
+
+                    still_connected.append((client_sock, buffer, last_activity))
+                except BlockingIOError:
+                    still_connected.append((client_sock, buffer, last_activity))
+                except Exception as e:
+                    sys.stderr.write(f"Error handling client: {e}\n")
+                    try:
+                        client_sock.close()
+                    except Exception:
+                        pass
+
+            clients = still_connected
+            time.sleep(0.01)
+    finally:
+        for client_sock, _, _ in clients:
+            try:
+                client_sock.close()
+            except Exception:
+                pass
+        server.close()
+        sys.stderr.write("Socket bridge server stopped\n")
 
 
 def main():
-    config_path = Path("C:/Users/HP/nx-mcp/live_bridge_config.json")
+    config_path = ROOT_DIR / "live_bridge_config.json"
     if config_path.exists():
         run_socket_bridge(config_path)
     else:

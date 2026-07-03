@@ -226,7 +226,7 @@ def test_new_modeling_tools_route_to_bridge(monkeypatch):
 
     assert modeling.create_real_sketch("XZ").message == "bridge create_real_sketch"
     assert modeling.extrude_from_sketch(15.0, "sketch_1", 2.0, "Y").message == "bridge extrude_from_sketch"
-    assert modeling.add_hole_nx(1.0, 2.0, 3.0, 8.0, 12.0, "body_1", "-Z", "simple").message == "bridge add_hole_nx"
+    assert modeling.add_hole_nx(1.0, 2.0, 3.0, 8.0, 12.0, "body_1", "-Z", "simple").message == "bridge add_hole"
     assert modeling.create_rib(6.0, "X", "body_2", True).message == "bridge create_rib"
     assert modeling.pattern_circular("feat_1", "Y", 6, 180.0).message == "bridge pattern_circular"
     assert modeling.edge_blend(4.0, "body_3", "top_edges").message == "bridge edge_blend"
@@ -238,7 +238,7 @@ def test_new_modeling_tools_route_to_bridge(monkeypatch):
     assert calls == [
         ("create_real_sketch", {"plane": "XZ"}),
         ("extrude_from_sketch", {"sketch_name": "sketch_1", "distance": 15.0, "start": 2.0, "direction": "Y"}),
-        ("add_hole_nx", {"x": 1.0, "y": 2.0, "z": 3.0, "diameter": 8.0, "depth": 12.0, "target": "body_1", "direction": "-Z", "hole_type": "simple"}),
+        ("add_hole", {"x": 1.0, "y": 2.0, "z": 3.0, "diameter": 8.0, "depth": 12.0, "target": "body_1", "direction": "-Z", "placement_face": "top"}),
         ("create_rib", {"thickness": 6.0, "direction": "X", "body": "body_2", "flip": True}),
         ("pattern_circular", {"feature_name": "feat_1", "axis": "Y", "count": 6, "angle_total": 180.0}),
         ("edge_blend", {"radius": 4.0, "body": "body_3", "edges": "top_edges"}),

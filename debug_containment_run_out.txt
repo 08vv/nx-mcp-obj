@@ -1,0 +1,30 @@
+Body 0: Tag=35284
+BBox methods: []
+Top arm centerline containment at Z=55.0:
+  dist=0.0 (x=78.000, y=0.000) -> containment=1
+  dist=12.0 (x=66.724, y=4.104) -> containment=1
+  dist=30.0 (x=49.809, y=10.261) -> containment=1
+  dist=50.0 (x=31.015, y=17.101) -> containment=1
+  dist=66.0 (x=15.980, y=22.573) -> containment=1
+  dist=78.0 (x=4.704, y=26.678) -> containment=3
+  dist=90.0 (x=-6.572, y=30.782) -> containment=2
+Body 1: Tag=35293
+BBox methods: []
+Top arm centerline containment at Z=55.0:
+  dist=0.0 (x=78.000, y=0.000) -> containment=2
+  dist=12.0 (x=66.724, y=4.104) -> containment=2
+  dist=30.0 (x=49.809, y=10.261) -> containment=2
+  dist=50.0 (x=31.015, y=17.101) -> containment=2
+  dist=66.0 (x=15.980, y=22.573) -> containment=2
+  dist=78.0 (x=4.704, y=26.678) -> containment=2
+  dist=90.0 (x=-6.572, y=30.782) -> containment=2
+Body 2: Tag=35258
+BBox methods: []
+Top arm centerline containment at Z=55.0:
+  dist=0.0 (x=78.000, y=0.000) -> containment=2
+  dist=12.0 (x=66.724, y=4.104) -> containment=2
+  dist=30.0 (x=49.809, y=10.261) -> containment=2
+  dist=50.0 (x=31.015, y=17.101) -> containment=2
+  dist=66.0 (x=15.980, y=22.573) -> containment=2
+  dist=78.0 (x=4.704, y=26.678) -> containment=2
+  dist=90.0 (x=-6.572, y=30.782) -> containment=2

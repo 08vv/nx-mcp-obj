@@ -23,6 +23,8 @@ def set_view(view_name: str = "ISO"):
     if view_name not in valid:
         return ToolError(f"Invalid view '{view_name}'. Choose: {', '.join(valid)}")
     try:
+        if not _use_mock_nxopen():
+            return _bridge_result(runner.call_nx("set_view", {"view_name": view_name}))
         NXSession.ui().ModelingViews.WorkView.Orient(view_name)
         return ToolResult(f"View set to {view_name}")
     except Exception as e: return ToolError(str(e))
@@ -48,6 +50,8 @@ def reset_nx_bridge():
 @mcp_tool("take_screenshot", "Save viewport screenshot to PNG")
 def take_screenshot(output_path: str = "screenshot.png"):
     try:
+        if not _use_mock_nxopen():
+            return _bridge_result(runner.call_nx("take_screenshot", {"output_path": output_path}))
         NXSession.ui().ModelingViews.WorkView.SaveImage(output_path, 1920, 1080)
         return ToolResult(f"Screenshot saved: {output_path}")
     except Exception as e: return ToolError(str(e))
@@ -55,6 +59,8 @@ def take_screenshot(output_path: str = "screenshot.png"):
 @mcp_tool("list_features", "List all features in the part feature tree")
 def list_features():
     try:
+        if not _use_mock_nxopen():
+            return _bridge_result(runner.call_nx("list_features", {}))
         features = NXSession.work_part().Features.ToArray()
         names = [f.GetFeatureName() for f in features] if features else []
         return ToolResult("Features: " + (", ".join(names) if names else "none"))

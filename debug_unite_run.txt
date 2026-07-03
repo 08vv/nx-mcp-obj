@@ -1,0 +1,12 @@
+Operation: subtract
+target input: EXTRUDE(0) -> resolved tag: 57707
+tool input: CYLINDER(1) -> resolved tag: 57784
+Operation: unite
+target input: body_1 -> resolved tag: 57707
+tool input: body_2 -> resolved tag: 57838
+Operation: unite
+target input: last -> resolved tag: 57916
+tool input: body_3 -> resolved tag: 57707
+Operation: subtract
+target input: UNITE(6)1 -> resolved tag: 57957
+tool input: CYLINDER(7) -> resolved tag: 57863

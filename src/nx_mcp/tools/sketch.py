@@ -111,3 +111,98 @@ def draw_arc(cx: float, cy: float, radius: float, start_angle: float, end_angle:
         return ToolResult(f"Arc {cx},{cy} r={radius} {start_angle} to {end_angle} deg")
     except Exception as e:
         return ToolError(str(e))
+
+
+@mcp_tool(
+    "draw_rounded_rectangle",
+    "Draw a closed rounded-rectangle (stadium/oblong) profile with 2 semicircular arc ends and 2 straight lines. "
+    "arm_length = total tip-to-tip length, arm_width = total width, end_radius = arc radius at each end. "
+    "cx_left = X of left arc center (default 0), cy = Y center (default 0), z = Z plane (default 0). "
+    "Curves accumulate in the active sketch profile."
+)
+def draw_rounded_rectangle(
+    arm_length: float,
+    arm_width: float,
+    end_radius: float,
+    cx_left: float = 0.0,
+    cy: float = 0.0,
+    z: float = 0.0,
+):
+    try:
+        if not _use_mock_nxopen():
+            return _bridge_result(
+                runner.call_nx(
+                    "draw_rounded_rectangle",
+                    {
+                        "arm_length": arm_length,
+                        "arm_width": arm_width,
+                        "end_radius": end_radius,
+                        "cx_left": cx_left,
+                        "cy": cy,
+                        "z": z,
+                    },
+                )
+            )
+        return ToolResult(
+            f"Rounded rectangle: L={arm_length} W={arm_width} R={end_radius} "
+            f"center_left=({cx_left},{cy}) z={z}"
+        )
+    except Exception as e:
+        return ToolError(str(e))
+
+
+@mcp_tool(
+    "create_offset_linkage_arm",
+    "Create a fully parametric offset linkage arm consisting of two identical rounded-end arms connected by "
+    "a vertical cylindrical spacer. The upper arm is rotated 180° relative to the lower arm. "
+    "All dimensions are NX Expressions: ARM_LENGTH=90, ARM_WIDTH=24, ARM_THICK=8, END_RADIUS=12, "
+    "HOLE_DIA=10, HOLE_OFFSET=12, CYLINDER_DIA=22, CYLINDER_HEIGHT=55, BLEND_RADIUS=2, CHAMFER_OFFSET=0.5. "
+    "output_path: full path to the .prt file (optional if a part is already open)."
+)
+def create_offset_linkage_arm(output_path: str = ""):
+    try:
+        if not _use_mock_nxopen():
+            args = {}
+            if output_path:
+                args["output_path"] = output_path
+            return _bridge_result(runner.call_nx("create_offset_linkage_arm", args))
+        return ToolResult(f"Offset linkage arm created (mock mode)")
+    except Exception as e:
+        return ToolError(str(e))
+
+
+@mcp_tool("create_offset_plane", "Create an offset datum plane from XY, XZ, or YZ plane")
+def create_offset_plane(base_plane: str = "XY", offset: float = 0.0):
+    try:
+        if not _use_mock_nxopen():
+            return _bridge_result(runner.call_nx("create_offset_plane", {"base_plane": base_plane, "offset": offset}))
+        return ToolResult(f"Offset plane created from {base_plane} with offset {offset}")
+    except Exception as e: return ToolError(str(e))
+
+
+@mcp_tool("add_constraint_horizontal", "Add a horizontal constraint to a sketch curve by index (0-based)")
+def add_constraint_horizontal(curve_index: int = 0):
+    try:
+        if not _use_mock_nxopen():
+            return _bridge_result(runner.call_nx("add_constraint_horizontal", {"curve_index": curve_index}))
+        return ToolResult(f"Added horizontal constraint to curve {curve_index}")
+    except Exception as e: return ToolError(str(e))
+
+
+@mcp_tool("add_constraint_vertical", "Add a vertical constraint to a sketch curve by index (0-based)")
+def add_constraint_vertical(curve_index: int = 0):
+    try:
+        if not _use_mock_nxopen():
+            return _bridge_result(runner.call_nx("add_constraint_vertical", {"curve_index": curve_index}))
+        return ToolResult(f"Added vertical constraint to curve {curve_index}")
+    except Exception as e: return ToolError(str(e))
+
+
+@mcp_tool("add_constraint_fixed", "Add a fixed/anchor constraint to a sketch curve by index (0-based)")
+def add_constraint_fixed(curve_index: int = 0):
+    try:
+        if not _use_mock_nxopen():
+            return _bridge_result(runner.call_nx("add_constraint_fixed", {"curve_index": curve_index}))
+        return ToolResult(f"Added fixed constraint to curve {curve_index}")
+    except Exception as e: return ToolError(str(e))
+

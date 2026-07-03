@@ -1,7 +1,20 @@
 import math
+import os
+from ..bridge import runner
 from ..tools.registry import mcp_tool
 from ..nx_session import NXSession
 from ..response import ToolResult, ToolError
+
+
+def _use_mock_nxopen():
+    return os.environ.get("NX_MCP_USE_MOCK_NXOPEN") == "1"
+
+
+def _bridge_result(result):
+    if result.get("ok"):
+        return ToolResult(result.get("message", "OK"))
+    return ToolError(result.get("error", "NX bridge command failed"))
+
 
 @mcp_tool("measure_distance", "Straight-line distance between two 3D points")
 def measure_distance(x1: float, y1: float, z1: float, x2: float, y2: float, z2: float):
@@ -28,9 +41,19 @@ def measure_volume(width: float, height: float, depth: float):
         return ToolResult(f"Volume: {v:.4f} mm³  ({v/1000:.4f} cm³)")
     except Exception as e: return ToolError(str(e))
 
-@mcp_tool("get_bounding_box", "Get bounding box of the current work part")
-def get_bounding_box():
+@mcp_tool("get_bounding_box", "Get bounding box of a target body (default 'last')")
+def get_bounding_box(body_reference: str = "last"):
     try:
+        if not _use_mock_nxopen():
+            return _bridge_result(runner.call_nx("get_bounding_box", {"body_reference": body_reference}))
         part = NXSession.work_part()
         return ToolResult(f"Bounding box computed for: {part}")
+    except Exception as e: return ToolError(str(e))
+
+@mcp_tool("measure_body_volume", "Measure the volume of a target body in the model")
+def measure_body_volume(body_reference: str = "last"):
+    try:
+        if not _use_mock_nxopen():
+            return _bridge_result(runner.call_nx("measure_body_volume", {"body_reference": body_reference}))
+        return ToolResult("Volume: 1000.0000 mm³ (mock mode)")
     except Exception as e: return ToolError(str(e))

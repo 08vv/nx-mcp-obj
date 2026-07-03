@@ -387,7 +387,7 @@ def extrude_from_sketch(
 
 @mcp_tool(
     "add_hole_nx",
-    "Proper NX Hole Builder: create a simple hole at x y z with diameter and depth. Direction 'auto' drills into active sketch plane.",
+    "Alias for add_hole. Create a simple hole at x y z with diameter and depth. Direction 'auto' drills into active sketch plane.",
 )
 def add_hole_nx(
     x: float,
@@ -399,28 +399,8 @@ def add_hole_nx(
     direction: str = "auto",
     hole_type: str = "simple",
 ):
-    try:
-        if diameter <= 0 or depth <= 0:
-            return ToolError("Hole diameter and depth must be positive")
-        if not _use_mock_nxopen():
-            return _bridge_result(
-                runner.call_nx(
-                    "add_hole_nx",
-                    {
-                        "x": x,
-                        "y": y,
-                        "z": z,
-                        "diameter": diameter,
-                        "depth": depth,
-                        "target": target,
-                        "direction": direction,
-                        "hole_type": hole_type,
-                    },
-                )
-            )
-        return ToolResult(f"Hole D={diameter} depth={depth} at ({x},{y},{z})")
-    except Exception as e:
-        return ToolError(str(e))
+    """Delegates to add_hole for backward compatibility."""
+    return add_hole(x, y, z, diameter, depth, target, direction)
 
 
 @mcp_tool(
