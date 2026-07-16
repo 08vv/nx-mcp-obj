@@ -175,6 +175,64 @@ def _create_named_expression(work_part, prefix, value):
     raise RuntimeError(f"Could not create expression with prefix '{prefix}' after 1000 attempts")
 
 
+_instance_counters = {}
+
+def _next_instance_prefix(feature_type):
+    """
+    Returns a unique, human-readable prefix for ONE call to a feature-creating
+    tool, e.g. "CUBOID_1", "CUBOID_2", "ARM_1", "ARM_2".
+
+    Call this EXACTLY ONCE at the start of each feature-creating function,
+    then build every expression name for that call using this prefix, e.g.:
+        prefix = _next_instance_prefix("CUBOID")
+        _create_input_expression(work_part, f"{prefix}_L", length)
+        _create_input_expression(work_part, f"{prefix}_W", width)
+    """
+    count = _instance_counters.get(feature_type, 0) + 1
+    _instance_counters[feature_type] = count
+    return f"{feature_type}_{count}"
+
+
+def _create_input_expression(work_part, name, value):
+    """
+    Creates a plain-number NX expression with an exact, caller-chosen name.
+    Use this for BASE inputs (values the user/agent directly sets),
+    as opposed to _create_formula_expression() for DERIVED values.
+    Unlike _create_named_expression(), this does NOT auto-append a counter
+    suffix -- it uses the exact name given, and updates it if it already exists.
+    """
+    if not hasattr(work_part, "Expressions"):
+        return name
+    try:
+        existing = work_part.Expressions.FindObject(name)
+        existing.RightHandSide = str(value)
+        return name
+    except Exception:
+        pass
+    work_part.Expressions.CreateExpression("Number", f"{name} = {value}")
+    return name
+
+
+def _create_formula_expression(work_part, name, formula_rhs):
+    """
+    Creates an NX expression where the right-hand side is a FORMULA
+    referencing other expression names (e.g. "ARM_LENGTH - 2 * END_RADIUS"),
+    NOT a pre-computed Python number. This is what makes derived values
+    truly parametric: if the referenced expressions change later (in NX
+    or via edit_expression), this one recalculates automatically inside NX.
+    """
+    if not hasattr(work_part, "Expressions"):
+        return name
+    try:
+        existing = work_part.Expressions.FindObject(name)
+        existing.RightHandSide = formula_rhs
+        return name
+    except Exception:
+        pass
+    work_part.Expressions.CreateExpression("Number", f"{name} = {formula_rhs}")
+    return name
+
+
 def _feature_name(feature):
     if feature is None:
         return ""
@@ -1022,42 +1080,62 @@ def create_offset_linkage_arm(output_path=None):
         "CHAMFER_OFFSET":  0.5,
     }
 
-    ARM_L   = PARAMS["ARM_LENGTH"]       # 90
-    ARM_W   = PARAMS["ARM_WIDTH"]        # 24
-    ARM_T   = PARAMS["ARM_THICK"]        # 8
-    END_R   = PARAMS["END_RADIUS"]       # 12
-    HOLE_D  = PARAMS["HOLE_DIA"]         # 10
-    HOLE_O  = PARAMS["HOLE_OFFSET"]      # 12
-    CYL_D   = PARAMS["CYLINDER_DIA"]     # 22
-    CYL_H   = PARAMS["CYLINDER_HEIGHT"]  # 55
-    BLEND_R = PARAMS["BLEND_RADIUS"]     # 2
-    CHAM_O  = PARAMS["CHAMFER_OFFSET"]   # 0.5
+    # ---- Create/get part ----
+    if output_path:
+        create_part(output_path)
+    work_part = _ensure_work_part()
 
-    ARM_SPAN = ARM_L - 2.0 * END_R   # 66.0
-    CYL_R    = CYL_D / 2.0           # 11.0
+    # ---- Create NX Expressions for Base Inputs ----
+    prefix = _next_instance_prefix("ARM")
+    for name, val in PARAMS.items():
+        _create_input_expression(work_part, f"{prefix}_{name}", val)
 
-    # Geometry: origin = left hole of lower arm = cylinder axis
-    # Lower arm: left arc center at (-HOLE_O, 0, 0)
-    #            right arc center at (-HOLE_O + ARM_SPAN, 0, 0) = (54, 0)
-    #            left hole at (0, 0, ARM_T)
-    #            right hole at (ARM_SPAN - 2*HOLE_O, 0, ARM_T) = (42, 0, ARM_T)
-    # Upper arm: right arc center at (HOLE_O, 0, Z_CYL_TOP)
-    #            left arc center at (HOLE_O - ARM_SPAN, 0, Z_CYL_TOP) = (-54, 0, Z_CYL_TOP)
-    #            right hole at (0, 0, Z_UPPER_TOP)
-    #            left hole at (-(ARM_SPAN - 2*HOLE_O), 0, Z_UPPER_TOP) = (-42, 0, Z_UPPER_TOP)
-    LOWER_LEFT_ARC_X   = -HOLE_O
-    LOWER_RIGHT_ARC_X  = LOWER_LEFT_ARC_X + ARM_SPAN  # 54
+    # ---- Create NX Expressions for Derived/Calculated parameters ----
+    _create_formula_expression(work_part, f"{prefix}_ARM_SPAN", f"{prefix}_ARM_LENGTH - 2.0 * {prefix}_END_RADIUS")
+    _create_formula_expression(work_part, f"{prefix}_CYL_R", f"{prefix}_CYLINDER_DIA / 2.0")
+
+    _create_formula_expression(work_part, f"{prefix}_LOWER_LEFT_ARC_X", f"-{prefix}_HOLE_OFFSET")
+    _create_formula_expression(work_part, f"{prefix}_LOWER_RIGHT_ARC_X", f"{prefix}_LOWER_LEFT_ARC_X + {prefix}_ARM_SPAN")
+    _create_formula_expression(work_part, f"{prefix}_LOWER_LEFT_HOLE_X", "0.0")
+    _create_formula_expression(work_part, f"{prefix}_LOWER_RIGHT_HOLE_X", f"{prefix}_ARM_SPAN - 2.0 * {prefix}_HOLE_OFFSET")
+
+    _create_formula_expression(work_part, f"{prefix}_UPPER_RIGHT_ARC_X", f"{prefix}_HOLE_OFFSET")
+    _create_formula_expression(work_part, f"{prefix}_UPPER_LEFT_ARC_X", f"{prefix}_UPPER_RIGHT_ARC_X - {prefix}_ARM_SPAN")
+    _create_formula_expression(work_part, f"{prefix}_UPPER_RIGHT_HOLE_X", "0.0")
+    _create_formula_expression(work_part, f"{prefix}_UPPER_LEFT_HOLE_X", f"- ({prefix}_ARM_SPAN - 2.0 * {prefix}_HOLE_OFFSET)")
+
+    _create_formula_expression(work_part, f"{prefix}_Z_LOWER_TOP", f"{prefix}_ARM_THICK")
+    _create_formula_expression(work_part, f"{prefix}_Z_CYL_TOP", f"{prefix}_ARM_THICK + {prefix}_CYLINDER_HEIGHT")
+    _create_formula_expression(work_part, f"{prefix}_Z_UPPER_TOP", f"{prefix}_ARM_THICK + {prefix}_CYLINDER_HEIGHT + {prefix}_ARM_THICK")
+
+    # Read float values back from NX expressions for geometry creation calls that require raw numbers
+    ARM_L   = work_part.Expressions.FindObject(f"{prefix}_ARM_LENGTH").Value
+    ARM_W   = work_part.Expressions.FindObject(f"{prefix}_ARM_WIDTH").Value
+    ARM_T   = work_part.Expressions.FindObject(f"{prefix}_ARM_THICK").Value
+    END_R   = work_part.Expressions.FindObject(f"{prefix}_END_RADIUS").Value
+    HOLE_D  = work_part.Expressions.FindObject(f"{prefix}_HOLE_DIA").Value
+    HOLE_O  = work_part.Expressions.FindObject(f"{prefix}_HOLE_OFFSET").Value
+    CYL_D   = work_part.Expressions.FindObject(f"{prefix}_CYLINDER_DIA").Value
+    CYL_H   = work_part.Expressions.FindObject(f"{prefix}_CYLINDER_HEIGHT").Value
+    BLEND_R = work_part.Expressions.FindObject(f"{prefix}_BLEND_RADIUS").Value
+    CHAM_O  = work_part.Expressions.FindObject(f"{prefix}_CHAMFER_OFFSET").Value
+
+    ARM_SPAN = work_part.Expressions.FindObject(f"{prefix}_ARM_SPAN").Value
+    CYL_R    = work_part.Expressions.FindObject(f"{prefix}_CYL_R").Value
+
+    LOWER_LEFT_ARC_X   = work_part.Expressions.FindObject(f"{prefix}_LOWER_LEFT_ARC_X").Value
+    LOWER_RIGHT_ARC_X  = work_part.Expressions.FindObject(f"{prefix}_LOWER_RIGHT_ARC_X").Value
     LOWER_LEFT_HOLE_X  = 0.0
-    LOWER_RIGHT_HOLE_X = ARM_SPAN - 2.0 * HOLE_O       # 42
+    LOWER_RIGHT_HOLE_X = work_part.Expressions.FindObject(f"{prefix}_LOWER_RIGHT_HOLE_X").Value
 
-    UPPER_RIGHT_ARC_X  = HOLE_O                        # 12
-    UPPER_LEFT_ARC_X   = UPPER_RIGHT_ARC_X - ARM_SPAN  # -54
+    UPPER_RIGHT_ARC_X  = work_part.Expressions.FindObject(f"{prefix}_UPPER_RIGHT_ARC_X").Value
+    UPPER_LEFT_ARC_X   = work_part.Expressions.FindObject(f"{prefix}_UPPER_LEFT_ARC_X").Value
     UPPER_RIGHT_HOLE_X = 0.0
-    UPPER_LEFT_HOLE_X  = -(ARM_SPAN - 2.0 * HOLE_O)    # -42
+    UPPER_LEFT_HOLE_X  = work_part.Expressions.FindObject(f"{prefix}_UPPER_LEFT_HOLE_X").Value
 
-    Z_LOWER_TOP = ARM_T
-    Z_CYL_TOP   = ARM_T + CYL_H
-    Z_UPPER_TOP = ARM_T + CYL_H + ARM_T
+    Z_LOWER_TOP = work_part.Expressions.FindObject(f"{prefix}_Z_LOWER_TOP").Value
+    Z_CYL_TOP   = work_part.Expressions.FindObject(f"{prefix}_Z_CYL_TOP").Value
+    Z_UPPER_TOP = work_part.Expressions.FindObject(f"{prefix}_Z_UPPER_TOP").Value
 
     def _extrude_profile(curves, start_val, end_val, bool_type=None, bool_target=None):
         """Extrude curves in +Z from start_val to end_val."""
@@ -1079,8 +1157,8 @@ def create_offset_linkage_arm(output_path=None):
                 NXOpen.SmartObject.UpdateOption.WithinModeling,
             )
             builder.Direction = nx_dir
-            builder.Limits.StartExtend.Value.RightHandSide = str(float(start_val))
-            builder.Limits.EndExtend.Value.RightHandSide = str(float(end_val))
+            builder.Limits.StartExtend.Value.RightHandSide = str(start_val)
+            builder.Limits.EndExtend.Value.RightHandSide = str(end_val)
             if bool_type is not None:
                 builder.BooleanOperation.Type = bool_type
                 if bool_target is not None:
@@ -1089,7 +1167,7 @@ def create_offset_linkage_arm(output_path=None):
                     except Exception:
                         pass
             else:
-                builder.BooleanOperation.Type = NXOpen.Features.Feature.BooleanType.Create
+                builder.BooleanOperation.Type = NXOpen.GeometricUtilities.BooleanOperation.BooleanType.Create
             feat = builder.CommitFeature()
             _remember_feature(feat)
             return feat
@@ -1097,25 +1175,16 @@ def create_offset_linkage_arm(output_path=None):
             builder.Destroy()
 
     def _get_body():
-        bodies = list(SESSION.Parts.Work.Bodies.ToArray() or [])
+        bodies = list(SESSION.Parts.Work.Bodies)
         return bodies[-1] if bodies else None
 
     def _subtract_hole(cx, cy, z_top, diameter, depth):
         """Create a hole by cylinder-subtract."""
         work_part = SESSION.Parts.Work
         target_body = _get_body()
-        d_name = _create_named_expression(work_part, "HOLE_D", diameter)
-        depth_name = _create_named_expression(work_part, "HOLE_DEPTH", depth)
+        d_name = _create_input_expression(work_part, f"{prefix}_HOLE_D", diameter)
+        depth_name = _create_input_expression(work_part, f"{prefix}_HOLE_DEPTH", depth)
         return _subtract_cylinder_hole_parametric(target_body, cx, cy, z_top, d_name, depth_name, "-Z")
-
-    # ---- Create/get part ----
-    if output_path:
-        create_part(output_path)
-    work_part = _ensure_work_part()
-
-    # ---- Create NX Expressions ----
-    for name, val in PARAMS.items():
-        _create_named_expression(work_part, name, val)
 
     # ========== Lower Arm (F3 + F4) ==========
     global ACTIVE_SKETCH_PLANE
@@ -1128,7 +1197,7 @@ def create_offset_linkage_arm(output_path=None):
     if not lower_curves:
         return {"ok": False, "error": "Failed to draw lower arm profile"}
 
-    _extrude_profile(lower_curves, 0.0, ARM_T)
+    _extrude_profile(lower_curves, "0.0", f"{prefix}_ARM_THICK")
     main_body = _get_body()
 
     # ========== Cylinder Spacer (F7 + F8) ==========
@@ -1158,17 +1227,14 @@ def create_offset_linkage_arm(output_path=None):
             origin, NXOpen.Vector3d(0.0, 0.0, 1.0),
             NXOpen.SmartObject.UpdateOption.WithinModeling,
         )
-        builder.Limits.StartExtend.Value.RightHandSide = str(ARM_T)
-        builder.Limits.EndExtend.Value.RightHandSide = str(ARM_T + CYL_H)
-        builder.BooleanOperation.Type = NXOpen.Features.Feature.BooleanType.Unite
-        try:
-            builder.BooleanOperation.SetTarget(main_body)
-        except Exception:
-            pass
+        builder.Limits.StartExtend.Value.RightHandSide = f"{prefix}_ARM_THICK"
+        builder.Limits.EndExtend.Value.RightHandSide = f"{prefix}_Z_CYL_TOP"
         cyl_feat = builder.CommitFeature()
         _remember_feature(cyl_feat)
     finally:
         builder.Destroy()
+    cyl_body = _get_body()
+    boolean_unite(_body_name(main_body), _body_name(cyl_body))
     main_body = _get_body()
 
     # ========== Upper Arm (F10 + F12) ==========
@@ -1204,10 +1270,10 @@ def create_offset_linkage_arm(output_path=None):
 
     # Extrude from Z_CYL_TOP to Z_UPPER_TOP
     _extrude_profile(
-        upper_curves_raw, Z_CYL_TOP, Z_UPPER_TOP,
-        bool_type=NXOpen.Features.Feature.BooleanType.Unite,
-        bool_target=main_body,
+        upper_curves_raw, f"{prefix}_Z_CYL_TOP", f"{prefix}_Z_UPPER_TOP"
     )
+    upper_arm_body = _get_body()
+    boolean_unite(_body_name(main_body), _body_name(upper_arm_body))
     main_body = _get_body()
 
     # ========== Lower Arm Holes (F5) ==========
@@ -1319,9 +1385,10 @@ def create_cuboid(length=40.0, width=25.0, height=20.0, x=0.0, y=0.0, z=0.0):
     work_part = _ensure_work_part()
     
     # Create expressions
-    l_name = _create_named_expression(work_part, "CUBOID_L", length)
-    w_name = _create_named_expression(work_part, "CUBOID_W", width)
-    h_name = _create_named_expression(work_part, "CUBOID_H", height)
+    prefix = _next_instance_prefix("CUBOID")
+    l_name = _create_input_expression(work_part, f"{prefix}_L", length)
+    w_name = _create_input_expression(work_part, f"{prefix}_W", width)
+    h_name = _create_input_expression(work_part, f"{prefix}_H", height)
     
     builder = work_part.Features.CreateBlockFeatureBuilder(
         NXOpen.Features.Feature.Null
@@ -1372,7 +1439,8 @@ def create_cube(size=10.0, x=0.0, y=0.0, z=0.0):
         return {"ok": False, "error": "Cube size must be positive"}
 
     work_part = _ensure_work_part()
-    s_name = _create_named_expression(work_part, "CUBE_SIZE", size)
+    prefix = _next_instance_prefix("CUBE")
+    s_name = _create_input_expression(work_part, f"{prefix}_SIZE", size)
 
     builder = work_part.Features.CreateBlockFeatureBuilder(
         NXOpen.Features.Feature.Null
@@ -1405,8 +1473,9 @@ def create_cylinder(radius=10.0, height=20.0, x=0.0, y=0.0, z=0.0, direction="Z"
         return {"ok": False, "error": "Cylinder radius and height must be positive"}
 
     work_part = _ensure_work_part()
-    r_name = _create_named_expression(work_part, "CYLINDER_R", radius)
-    h_name = _create_named_expression(work_part, "CYLINDER_H", height)
+    prefix = _next_instance_prefix("CYLINDER")
+    r_name = _create_input_expression(work_part, f"{prefix}_R", radius)
+    h_name = _create_input_expression(work_part, f"{prefix}_H", height)
 
     builder = work_part.Features.CreateCylinderBuilder(
         NXOpen.Features.Feature.Null
@@ -1595,7 +1664,8 @@ def add_chamfer(offset, body="last", edges="outer_edges"):
 
     work_part = _ensure_work_part()
     selected_edges = _resolve_edges(body, edges)
-    offset_name = _create_named_expression(work_part, "CHAMFER_OFFSET", offset)
+    prefix = _next_instance_prefix("CHAMFER")
+    offset_name = _create_input_expression(work_part, f"{prefix}_OFFSET", offset)
 
     builder = work_part.Features.CreateChamferBuilder(
         NXOpen.Features.Feature.Null
@@ -1637,7 +1707,8 @@ def add_fillet(radius, body="last", edges="outer_edges"):
 
     work_part = _ensure_work_part()
     selected_edges = _resolve_edges(body, edges)
-    r_name = _create_named_expression(work_part, "FILLET_R", radius)
+    prefix = _next_instance_prefix("FILLET")
+    r_name = _create_input_expression(work_part, f"{prefix}_R", radius)
 
     builder = work_part.Features.CreateEdgeBlendBuilder(
         NXOpen.Features.Feature.Null
@@ -1673,8 +1744,9 @@ def add_fillet(radius, body="last", edges="outer_edges"):
 
 def _subtract_cylinder_hole(target_body, x, y, z, diameter, depth, direction):
     work_part = _ensure_work_part()
-    d_name = _create_named_expression(work_part, "HOLE_D", diameter)
-    depth_name = _create_named_expression(work_part, "HOLE_DEPTH", depth)
+    prefix = _next_instance_prefix("HOLE")
+    d_name = _create_input_expression(work_part, f"{prefix}_D", diameter)
+    depth_name = _create_input_expression(work_part, f"{prefix}_DEPTH", depth)
     return _subtract_cylinder_hole_parametric(target_body, x, y, z, d_name, depth_name, direction)
 
 
@@ -1716,8 +1788,9 @@ def add_hole(x, y, z, diameter, depth, target="last", direction="auto", placemen
 
     target_body = _resolve_body(target)
     work_part = _ensure_work_part()
-    d_name = _create_named_expression(work_part, "HOLE_D", diameter)
-    depth_name = _create_named_expression(work_part, "HOLE_DEPTH", depth)
+    prefix = _next_instance_prefix("HOLE")
+    d_name = _create_input_expression(work_part, f"{prefix}_D", diameter)
+    depth_name = _create_input_expression(work_part, f"{prefix}_DEPTH", depth)
 
     resolved_dir = _resolve_hole_direction(direction)
 
@@ -1849,8 +1922,9 @@ def pattern_feature(feature_name="last", direction="X", count=3, pitch=10.0):
     work_part = _ensure_work_part()
     source_feature = _resolve_feature(feature_name)
     
-    count_name = _create_named_expression(work_part, "PATTERN_COUNT", count)
-    pitch_name = _create_named_expression(work_part, "PATTERN_PITCH", pitch)
+    prefix = _next_instance_prefix("PATTERN")
+    count_name = _create_input_expression(work_part, f"{prefix}_COUNT", count)
+    pitch_name = _create_input_expression(work_part, f"{prefix}_PITCH", pitch)
 
     builder_factory = getattr(work_part.Features, "CreatePatternFeatureBuilder", None)
     if not callable(builder_factory):
@@ -1992,9 +2066,9 @@ def extrude_from_sketch(sketch_name="last", distance=10.0, start=0.0, direction=
     distance = _eval_val(distance)
     start = _eval_val(start)
     work_part = _ensure_work_part()
-
-    dist_name = _create_named_expression(work_part, "EXTRUDE_DIST", distance)
-    start_name = _create_named_expression(work_part, "EXTRUDE_START", start)
+    prefix = _next_instance_prefix("EXTRUDE")
+    dist_name = _create_input_expression(work_part, f"{prefix}_DIST", distance)
+    start_name = _create_input_expression(work_part, f"{prefix}_START", start)
 
     # Try resolving real sketch feature curves if sketch_name is specified
     curves = []
@@ -2092,8 +2166,9 @@ def add_hole_nx(
 
     target_body = _resolve_body(target)
     work_part = _ensure_work_part()
-    d_name = _create_named_expression(work_part, "HOLE_D", diameter)
-    depth_name = _create_named_expression(work_part, "HOLE_DEPTH", depth)
+    prefix = _next_instance_prefix("HOLE")
+    d_name = _create_input_expression(work_part, f"{prefix}_D", diameter)
+    depth_name = _create_input_expression(work_part, f"{prefix}_DEPTH", depth)
 
     debug_msg = ""
     resolved_dir = _resolve_hole_direction(direction)
@@ -2218,9 +2293,12 @@ def create_rib(thickness, direction="auto", body="last", flip=False):
     if not curves:
         return {"ok": False, "error": "No profile curves — draw a rib profile first"}
 
-    t_name = _create_named_expression(work_part, "RIB_T", thickness)
-    half_t = thickness / 2.0
-    half_t_name = _create_named_expression(work_part, "RIB_HALF_T", half_t)
+    prefix = _next_instance_prefix("RIB")
+    _create_input_expression(work_part, f"{prefix}_T", thickness)
+    _create_formula_expression(work_part, f"{prefix}_HALF_T", f"{prefix}_T / 2.0")
+    t_name = f"{prefix}_T"
+    half_t_name = f"{prefix}_HALF_T"
+    half_t = work_part.Expressions.FindObject(half_t_name).Value
 
     resolved_dir = _resolve_direction(direction)
 
@@ -2344,8 +2422,9 @@ def pattern_circular(
     work_part = _ensure_work_part()
     source_feature = _resolve_feature(feature_name)
 
-    count_name = _create_named_expression(work_part, "CIRC_PAT_COUNT", count)
-    angle_name = _create_named_expression(work_part, "CIRC_PAT_ANGLE", angle_total)
+    prefix = _next_instance_prefix("CIRC_PAT")
+    count_name = _create_input_expression(work_part, f"{prefix}_COUNT", count)
+    angle_name = _create_input_expression(work_part, f"{prefix}_ANGLE", angle_total)
 
     resolved_axis = _resolve_direction(axis)
 
@@ -2396,8 +2475,8 @@ def pattern_circular(
                 rect.XSpacing.NCopies.RightHandSide = count_name
                 # pitch = total_angle / (count-1) as angular — use numeric
                 pitch_deg = angle_total / max(count - 1, 1)
-                pitch_name = _create_named_expression(
-                    work_part, "CIRC_PAT_PITCH_DEG", pitch_deg
+                pitch_name = _create_input_expression(
+                    work_part, f"{prefix}_PITCH_DEG", pitch_deg
                 )
                 rect.XSpacing.PitchDistance.RightHandSide = pitch_name
             else:
@@ -2443,7 +2522,8 @@ def revolve_cut(axis="auto", angle_deg=360.0, target="last"):
         return {"ok": False, "error": "No curves to revolve-cut — draw a profile first"}
 
     target_body = _resolve_body(target)
-    angle_name = _create_named_expression(work_part, "REVOLVE_CUT_ANGLE", angle_deg)
+    prefix = _next_instance_prefix("REVOLVE_CUT")
+    angle_name = _create_input_expression(work_part, f"{prefix}_ANGLE", angle_deg)
     resolved_axis = _resolve_revolve_axis(axis)
 
     # --- Try modern CreateRevolveBuilder path ---
@@ -2527,8 +2607,9 @@ def extrude_cut(distance, start=0.0, target="last", direction="auto"):
         return {"ok": False, "error": "No curves to extrude-cut — draw a profile first"}
 
     target_body = _resolve_body(target)
-    dist_name = _create_named_expression(work_part, "EXTRUDE_CUT_DIST", distance)
-    start_name = _create_named_expression(work_part, "EXTRUDE_CUT_START", start)
+    prefix = _next_instance_prefix("EXTRUDE_CUT")
+    dist_name = _create_input_expression(work_part, f"{prefix}_DIST", distance)
+    start_name = _create_input_expression(work_part, f"{prefix}_START", start)
 
     builder = work_part.Features.CreateExtrudeBuilder(
         NXOpen.Features.Feature.Null
@@ -2722,13 +2803,14 @@ def extrude_surface(distance, start=0.0, direction="auto"):
     curves = _state.get("last_curves", [])
     if not curves:
         return {"ok": False, "error": "No curves to extrude as surface"}
+    prefix = _next_instance_prefix("EXTRUDE_SURF")
     def config(builder, wp):
         builder.Section = _build_section_from_curves(wp, curves)
         resolved_dir = _resolve_direction(direction)
         origin = NXOpen.Point3d(0.0, 0.0, 0.0)
         builder.Direction = _create_direction(wp, origin, _direction_vector(resolved_dir))
-        builder.Limits.StartExtend.Value.RightHandSide = _create_named_expression(wp, "EXTRUDE_SURF_START", start)
-        builder.Limits.EndExtend.Value.RightHandSide = _create_named_expression(wp, "EXTRUDE_SURF_DIST", distance)
+        builder.Limits.StartExtend.Value.RightHandSide = _create_input_expression(wp, f"{prefix}_START", start)
+        builder.Limits.EndExtend.Value.RightHandSide = _create_input_expression(wp, f"{prefix}_DIST", distance)
         for attr in ("FeatureOption", "FeatureOptions"):
             if hasattr(builder, attr):
                 try:
@@ -2793,8 +2875,9 @@ def add_face_blend(face1_x, face1_y, face1_z, face2_x, face2_y, face2_z, radius=
     radius = float(radius)
     f1 = _resolve_face_by_coordinate(body, face1_x, face1_y, face1_z)
     f2 = _resolve_face_by_coordinate(body, face2_x, face2_y, face2_z)
+    prefix = _next_instance_prefix("FACE_BLEND")
     def config(builder, wp):
-        r_name = _create_named_expression(wp, "FACE_BLEND_R", radius)
+        r_name = _create_input_expression(wp, f"{prefix}_R", radius)
         if hasattr(builder, "Radius"):
             builder.Radius.RightHandSide = r_name
         collector1 = wp.ScCollectors.CreateCollector()
@@ -2813,8 +2896,9 @@ def add_face_blend(face1_x, face1_y, face1_z, face2_x, face2_y, face2_z, radius=
 def offset_surface(distance, body="last", face_x=0.0, face_y=0.0, face_z=0.0):
     distance = float(distance)
     f = _resolve_face_by_coordinate(body, face_x, face_y, face_z)
+    prefix = _next_instance_prefix("OFFSET_SURF")
     def config(builder, wp):
-        dist_name = _create_named_expression(wp, "OFFSET_DIST", distance)
+        dist_name = _create_input_expression(wp, f"{prefix}_DIST", distance)
         if hasattr(builder, "Distance"):
             builder.Distance.RightHandSide = dist_name
         collector = wp.ScCollectors.CreateCollector()
@@ -2828,8 +2912,9 @@ def offset_surface(distance, body="last", face_x=0.0, face_y=0.0, face_z=0.0):
 def thicken_sheet(thickness, direction="auto", body="last"):
     thickness = float(thickness)
     target_body = _resolve_body(body)
+    prefix = _next_instance_prefix("THICKEN")
     def config(builder, wp):
-        t_name = _create_named_expression(wp, "THICKEN_T", thickness)
+        t_name = _create_input_expression(wp, f"{prefix}_T", thickness)
         if hasattr(builder, "FirstOffset"):
             builder.FirstOffset.RightHandSide = t_name
         if hasattr(builder, "SecondOffset"):
@@ -2887,10 +2972,11 @@ def create_tube(guide="last", outer_diameter=10.0, inner_diameter=0.0):
     guide_curves = _resolve_curves(guide)
     if not guide_curves:
         return {"ok": False, "error": "Tube guide curves could not be resolved"}
+    prefix = _next_instance_prefix("TUBE")
     def config(builder, wp):
         gd = _build_section_from_curves(wp, guide_curves)
-        od_name = _create_named_expression(wp, "TUBE_OD", outer_diameter)
-        id_name = _create_named_expression(wp, "TUBE_ID", inner_diameter)
+        od_name = _create_input_expression(wp, f"{prefix}_OD", outer_diameter)
+        id_name = _create_input_expression(wp, f"{prefix}_ID", inner_diameter)
         if hasattr(builder, "OuterDiameter"):
             builder.OuterDiameter.RightHandSide = od_name
         if hasattr(builder, "InnerDiameter"):
@@ -2968,6 +3054,7 @@ def variable_offset(distance_start=2.0, distance_end=5.0, body="last", face_x=0.
     ds = float(distance_start)
     de = float(distance_end)
     f = _resolve_face_by_coordinate(body, face_x, face_y, face_z)
+    prefix = _next_instance_prefix("VAR_OFFSET")
     def config(builder, wp):
         if hasattr(builder, "FaceCollector"):
             collector = wp.ScCollectors.CreateCollector()
@@ -2975,9 +3062,9 @@ def variable_offset(distance_start=2.0, distance_end=5.0, body="last", face_x=0.
             _set_collector_rules(collector, [rule])
             builder.FaceCollector = collector
         if hasattr(builder, "StartDistance"):
-            builder.StartDistance.RightHandSide = _create_named_expression(wp, "VAR_OFFSET_START", ds)
+            builder.StartDistance.RightHandSide = _create_input_expression(wp, f"{prefix}_START", ds)
         if hasattr(builder, "EndDistance"):
-            builder.EndDistance.RightHandSide = _create_named_expression(wp, "VAR_OFFSET_END", de)
+            builder.EndDistance.RightHandSide = _create_input_expression(wp, f"{prefix}_END", de)
     return _execute_surface_builder("CreateVariableOffsetBuilder", config, f"Variable offset surface ({ds}mm to {de}mm) created")
 
 
@@ -2989,11 +3076,12 @@ def law_extension(distance=10.0, angle=45.0, boundary_edge_x=0.0, boundary_edge_
     dist = float(distance)
     ang = float(angle)
     edge = _resolve_edge_by_coordinate(body, boundary_edge_x, boundary_edge_y, boundary_edge_z)
+    prefix = _next_instance_prefix("LAW_EXT")
     def config(builder, wp):
         if hasattr(builder, "Length"):
-            builder.Length.RightHandSide = _create_named_expression(wp, "LAW_EXT_LEN", dist)
+            builder.Length.RightHandSide = _create_input_expression(wp, f"{prefix}_LEN", dist)
         if hasattr(builder, "Angle"):
-            builder.Angle.RightHandSide = _create_named_expression(wp, "LAW_EXT_ANG", ang)
+            builder.Angle.RightHandSide = _create_input_expression(wp, f"{prefix}_ANG", ang)
         if hasattr(builder, "BoundaryEdgeCollector"):
             collector = wp.ScCollectors.CreateCollector()
             rule = wp.ScRuleFactory.CreateRuleEdgeTangent(edge, NXOpen.Edge.Null, False, 0.5, False)
@@ -3043,9 +3131,10 @@ def aesthetic_face_blend(radius=5.0, body="last", face1_x=0.0, face1_y=0.0, face
     radius = float(radius)
     f1 = _resolve_face_by_coordinate(body, face1_x, face1_y, face1_z)
     f2 = _resolve_face_by_coordinate(body, face2_x, face2_y, face2_z)
+    prefix = _next_instance_prefix("AESTHETIC_BLEND")
     def config(builder, wp):
         if hasattr(builder, "Radius"):
-            builder.Radius.RightHandSide = _create_named_expression(wp, "AESTHETIC_BLEND_R", radius)
+            builder.Radius.RightHandSide = _create_input_expression(wp, f"{prefix}_R", radius)
         collector1 = wp.ScCollectors.CreateCollector()
         collector2 = wp.ScCollectors.CreateCollector()
         rule1 = wp.ScRuleFactory.CreateRuleFaceDumb([f1])
@@ -3078,8 +3167,9 @@ def bridge_surface(edge1_x=0.0, edge1_y=0.0, edge1_z=0.0, edge2_x=0.0, edge2_y=0
 
 def blend_corner(radius=5.0, corner_vertex_x=0.0, corner_vertex_y=0.0, corner_vertex_z=0.0, body="last"):
     radius = float(radius)
+    prefix = _next_instance_prefix("BLEND_CORNER")
     def config(builder, wp):
-        r_name = _create_named_expression(wp, "BLEND_CORNER_R", radius)
+        r_name = _create_input_expression(wp, f"{prefix}_R", radius)
         if hasattr(builder, "Radius"):
             builder.Radius.RightHandSide = r_name
     return _execute_surface_builder("CreateBlendCornerBuilder", config, "Blend corner feature created")
@@ -3128,8 +3218,9 @@ def fit_surface(target_face_x=0.0, target_face_y=0.0, target_face_z=0.0, body="l
 def variable_offset_face(distance=5.0, body="last", face_x=0.0, face_y=0.0, face_z=0.0):
     dist = float(distance)
     f = _resolve_face_by_coordinate(body, face_x, face_y, face_z)
+    prefix = _next_instance_prefix("VAR_OFFSET_FACE")
     def config(builder, wp):
-        dist_name = _create_named_expression(wp, "VAR_OFFSET_FACE_DIST", dist)
+        dist_name = _create_input_expression(wp, f"{prefix}_DIST", dist)
         if hasattr(builder, "Distance"):
             builder.Distance.RightHandSide = dist_name
         collector = wp.ScCollectors.CreateCollector()
@@ -3143,8 +3234,9 @@ def variable_offset_face(distance=5.0, body="last", face_x=0.0, face_y=0.0, face
 def extension_surface(distance=10.0, boundary_edge_x=0.0, boundary_edge_y=0.0, boundary_edge_z=0.0, body="last"):
     dist = float(distance)
     edge = _resolve_edge_by_coordinate(body, boundary_edge_x, boundary_edge_y, boundary_edge_z)
+    prefix = _next_instance_prefix("EXT_SURF")
     def config(builder, wp):
-        dist_name = _create_named_expression(wp, "EXT_SURF_DIST", dist)
+        dist_name = _create_input_expression(wp, f"{prefix}_DIST", dist)
         if hasattr(builder, "Distance"):
             builder.Distance.RightHandSide = dist_name
         collector = wp.ScCollectors.CreateCollector()
@@ -3158,8 +3250,9 @@ def extension_surface(distance=10.0, boundary_edge_x=0.0, boundary_edge_y=0.0, b
 def silhouette_flange(distance=10.0, body="last", face_x=0.0, face_y=0.0, face_z=0.0):
     dist = float(distance)
     f = _resolve_face_by_coordinate(body, face_x, face_y, face_z)
+    prefix = _next_instance_prefix("SILHOUETTE")
     def config(builder, wp):
-        dist_name = _create_named_expression(wp, "SILHOUETTE_DIST", dist)
+        dist_name = _create_input_expression(wp, f"{prefix}_DIST", dist)
         if hasattr(builder, "Distance"):
             builder.Distance.RightHandSide = dist_name
         if hasattr(builder, "Face"):
@@ -3170,8 +3263,9 @@ def silhouette_flange(distance=10.0, body="last", face_x=0.0, face_y=0.0, face_z
 def face_pairs(distance=2.0, body="last"):
     dist = float(distance)
     target_body = _resolve_body(body)
+    prefix = _next_instance_prefix("FACE_PAIRS")
     def config(builder, wp):
-        dist_name = _create_named_expression(wp, "FACE_PAIRS_DIST", dist)
+        dist_name = _create_input_expression(wp, f"{prefix}_DIST", dist)
         if hasattr(builder, "SearchDistance"):
             builder.SearchDistance.RightHandSide = dist_name
         if hasattr(builder, "Body"):
@@ -3224,8 +3318,9 @@ def surface_through_points(boundary="last"):
 def ribbon_builder(width=10.0, boundary_edge_x=0.0, boundary_edge_y=0.0, boundary_edge_z=0.0, body="last"):
     w = float(width)
     edge = _resolve_edge_by_coordinate(body, boundary_edge_x, boundary_edge_y, boundary_edge_z)
+    prefix = _next_instance_prefix("RIBBON")
     def config(builder, wp):
-        w_name = _create_named_expression(wp, "RIBBON_WIDTH", w)
+        w_name = _create_input_expression(wp, f"{prefix}_WIDTH", w)
         if hasattr(builder, "Width"):
             builder.Width.RightHandSide = w_name
         collector = wp.ScCollectors.CreateCollector()
@@ -3279,8 +3374,9 @@ def trim_sheet(target_body="last", boundary_sketch="last"):
 def extend_sheet(distance=10.0, boundary_edge_x=0.0, boundary_edge_y=0.0, boundary_edge_z=0.0, body="last"):
     dist = float(distance)
     edge = _resolve_edge_by_coordinate(body, boundary_edge_x, boundary_edge_y, boundary_edge_z)
+    prefix = _next_instance_prefix("EXT_SHEET")
     def config(builder, wp):
-        d_name = _create_named_expression(wp, "EXT_SHEET_DIST", dist)
+        d_name = _create_input_expression(wp, f"{prefix}_DIST", dist)
         if hasattr(builder, "Distance"):
             builder.Distance.RightHandSide = d_name
         collector = wp.ScCollectors.CreateCollector()
@@ -3367,8 +3463,9 @@ def emboss_body(target_body="last", boundary_sketch="last", depth=5.0):
     tb = _resolve_body(target_body)
     curves = _resolve_curves(boundary_sketch)
     depth = float(depth)
+    prefix = _next_instance_prefix("EMBOSS")
     def config(builder, wp):
-        d_name = _create_named_expression(wp, "EMBOSS_DEPTH", depth)
+        d_name = _create_input_expression(wp, f"{prefix}_DEPTH", depth)
         if hasattr(builder, "Depth"):
             builder.Depth.RightHandSide = d_name
         if hasattr(builder, "TargetBody"):
@@ -3440,8 +3537,9 @@ def reverse_normal(body="last"):
 def local_untrim_extend(boundary_edge_x=0.0, boundary_edge_y=0.0, boundary_edge_z=0.0, distance=10.0, body="last"):
     dist = float(distance)
     edge = _resolve_edge_by_coordinate(body, boundary_edge_x, boundary_edge_y, boundary_edge_z)
+    prefix = _next_instance_prefix("LOCAL_EXT")
     def config(builder, wp):
-        d_name = _create_named_expression(wp, "LOCAL_EXT_DIST", dist)
+        d_name = _create_input_expression(wp, f"{prefix}_DIST", dist)
         if hasattr(builder, "Distance"):
             builder.Distance.RightHandSide = d_name
         if hasattr(builder, "Edge"):
@@ -3539,8 +3637,9 @@ def edit_uv_direction(body="last"):
 def enlarge_face(body="last", distance=5.0, face_x=0.0, face_y=0.0, face_z=0.0):
     dist = float(distance)
     f = _resolve_face_by_coordinate(body, face_x, face_y, face_z)
+    prefix = _next_instance_prefix("ENLARGE")
     def config(builder, wp):
-        d_name = _create_named_expression(wp, "ENLARGE_DIST", dist)
+        d_name = _create_input_expression(wp, f"{prefix}_DIST", dist)
         if hasattr(builder, "Distance"):
             builder.Distance.RightHandSide = d_name
         if hasattr(builder, "Face"):
@@ -3845,6 +3944,8 @@ def dispatch(command):
 
         return func(**bound_args)
     except Exception as e:
+        import traceback
+        sys.stderr.write(f"[ERROR] Failed to execute {tool}:\n{traceback.format_exc()}\n")
         return {"ok": False, "error": f"Failed to execute {tool}: {e}"}
 
 
@@ -3876,7 +3977,39 @@ def edit_expression(name, value):
     except Exception as e:
         return {"ok": False, "error": f"Failed to save part: {e}"}
 
-    return {"ok": True, "message": f"Expression '{name}' updated to '{value}'"}
+def get_diagnostics():
+    try:
+        work_part = SESSION.Parts.Work
+        if work_part is None:
+            return {"ok": True, "expressions": {}, "bodies": []}
+        
+        # 1. Get all expressions
+        exprs = {}
+        for expr in work_part.Expressions:
+            exprs[expr.Name] = {
+                "rhs": expr.RightHandSide,
+                "value": expr.Value
+            }
+            
+        # 2. Get all bodies and their bounds/sizes
+        bodies_info = []
+        for i, body in enumerate(work_part.Bodies):
+            min_pt, max_pt = _body_bounds(body)
+            bodies_info.append({
+                "index": i,
+                "name": _body_name(body),
+                "min": list(min_pt),
+                "max": list(max_pt),
+                "size": [max_pt[0] - min_pt[0], max_pt[1] - min_pt[1], max_pt[2] - min_pt[2]]
+            })
+            
+        return {
+            "ok": True,
+            "expressions": exprs,
+            "bodies": bodies_info
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"Diagnostics failed: {e}"}
 
 
 def handle_line(line):
