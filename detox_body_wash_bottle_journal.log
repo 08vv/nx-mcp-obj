@@ -1,11 +1,2 @@
 Starting new body wash bottle journal
-Traceback (most recent call last):
-  File "C:\Users\HP\nx-mcp\src\nx_mcp\journals\create_detox_body_wash_bottle.py", line 595, in <module>
-    main()
-  File "C:\Users\HP\nx-mcp\src\nx_mcp\journals\create_detox_body_wash_bottle.py", line 565, in main
-    _, body = body_feature(part)
-  File "C:\Users\HP\nx-mcp\src\nx_mcp\journals\create_detox_body_wash_bottle.py", line 219, in body_feature
-    sketch = xy_sketch(part, "SKETCH_ROUNDED_RECTANGLE_BODY_PROFILE")
-  File "C:\Users\HP\nx-mcp\src\nx_mcp\journals\create_detox_body_wash_bottle.py", line 121, in xy_sketch
-    NXOpen.Vector3d(0, 0, 1),
-TypeError: First parameter is invalid. Expecting double type, found int.
+Completed successfully

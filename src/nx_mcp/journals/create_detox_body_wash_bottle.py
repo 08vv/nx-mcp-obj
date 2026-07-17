@@ -18,53 +18,43 @@ from pathlib import Path
 import NXOpen
 import NXOpen.UF
 
-
 UF = NXOpen.UF.UFSession.GetUFSession()
 
-
 VALUES = {
-    "Bottle_Height": 180.0,
-    "Bottle_Width": 70.0,
-    "Bottle_Depth": 45.0,
-    "Wall_Thickness": 2.5,
+    "Overall_Height": 230.0,
+    "Overall_Width": 78.0,
+    "Overall_Depth": 42.0,
+    "Body_Height": 150.0,
+    "Shoulder_Height": 38.0,
+    "Neck_Diameter": 34.0,
+    "Neck_Height": 12.0,
+    "Cap_Diameter": 40.0,
+    "Cap_Height": 30.0,
     "Corner_Radius": 9.0,
-    "Shoulder_Height": 30.0,
-    "Neck_Diameter": 27.0,
-    "Neck_Height": 17.0,
-    "Retaining_Ring_Diameter": 31.0,
-    "Retaining_Ring_Height": 3.0,
-    "Cap_Diameter": 35.0,
-    "Cap_Height": 24.0,
-    "Cap_Rib_Count": 36,
-    "Cap_Rib_Depth": 0.8,
-    "Bottom_Fillet": 1.8,
-    "Top_Fillet": 0.6,
+    "Bottom_Blend": 4.0,
+    "Wall_Thickness": 2.2,
+    "Draft_Angle": 0.8,
+    "Rib_Count": 48,
+    "Rib_Depth": 0.7,
+    "Rib_Width": 1.2,
 }
 
-BODY_HEIGHT_FACTOR = 0.73
 SECTION_SEGMENTS = (64, 80, 96, 120)
 
 
 def out_path() -> Path:
-    if len(sys.argv) > 1:
-        return Path(sys.argv[1]).resolve()
-    return Path(__file__).resolve().parents[3] / "detox_body_wash_bottle.prt"
+    for arg in sys.argv:
+        try:
+            p = Path(arg)
+            if p.suffix.lower() == ".prt":
+                return p.resolve()
+        except Exception:
+            pass
+    return Path("C:/Users/HP/nx-mcp/detox_body_wash_bottle.prt")
 
 
 def v(name: str) -> float:
     return float(VALUES[name])
-
-
-def body_h() -> float:
-    return v("Bottle_Height") * BODY_HEIGHT_FACTOR
-
-
-def shoulder_top() -> float:
-    return body_h() + v("Shoulder_Height")
-
-
-def neck_top() -> float:
-    return shoulder_top() + v("Retaining_Ring_Height") + v("Neck_Height")
 
 
 def set_name(obj, name: str) -> None:
@@ -76,19 +66,13 @@ def set_name(obj, name: str) -> None:
 
 def make_expressions(part) -> None:
     for name, value in VALUES.items():
-        rhs = int(value) if name == "Cap_Rib_Count" else value
+        rhs = int(value) if name == "Rib_Count" else value
         try:
             part.Expressions.CreateExpression("Number", f"{name} = {rhs}")
         except Exception:
             pass
     formulas = {
-        "Body_Height": "Bottle_Height * 0.73",
-        "Shoulder_Start_Z": "Body_Height",
-        "Shoulder_End_Z": "Body_Height + Shoulder_Height",
-        "Neck_Start_Z": "Shoulder_End_Z + Retaining_Ring_Height",
-        "Neck_End_Z": "Neck_Start_Z + Neck_Height",
-        "Cap_Start_Z": "Neck_End_Z",
-        "Cap_Rib_Angle": "360.0 / Cap_Rib_Count",
+        "Cap_Rib_Angle": "360.0 / Rib_Count",
     }
     for name, rhs in formulas.items():
         try:
@@ -99,6 +83,10 @@ def make_expressions(part) -> None:
 
 def point(x: float, y: float, z: float) -> NXOpen.Point3d:
     return NXOpen.Point3d(float(x), float(y), float(z))
+
+
+def vec(x: float, y: float, z: float) -> NXOpen.Vector3d:
+    return NXOpen.Vector3d(float(x), float(y), float(z))
 
 
 def line(part, a, b):
@@ -117,8 +105,8 @@ def add_to_sketch(sketch, curve) -> None:
 
 def xy_sketch(part, name: str):
     plane = part.Planes.CreatePlane(
-        point(0, 0, 0),
-        NXOpen.Vector3d(0, 0, 1),
+        point(0.0, 0.0, 0.0),
+        vec(0.0, 0.0, 1.0),
         NXOpen.SmartObject.UpdateOption.WithinModeling,
     )
     factory = (
@@ -142,24 +130,60 @@ def xy_sketch(part, name: str):
     return sketch
 
 
-def rounded_rect_curves(part, z: float, w: float, d: float, r: float, sketch=None):
+def crowned_rect_curves(part, z: float, w: float, d: float, r: float, crown: float, sketch=None):
     hw = w * 0.5
     hd = d * 0.5
     r = min(r, hw - 0.1, hd - 0.1)
-    x0, x1 = -hw + r, hw - r
-    y0, y1 = -hd + r, hd - r
-    x_axis = NXOpen.Vector3d(1, 0, 0)
-    y_axis = NXOpen.Vector3d(0, 1, 0)
-    curves = [
-        line(part, (x0, -hd, z), (x1, -hd, z)),
-        part.Curves.CreateArc(point(x1, y0, z), x_axis, y_axis, r, -math.pi / 2, 0),
-        line(part, (hw, y0, z), (hw, y1, z)),
-        part.Curves.CreateArc(point(x1, y1, z), x_axis, y_axis, r, 0, math.pi / 2),
-        line(part, (x1, hd, z), (x0, hd, z)),
-        part.Curves.CreateArc(point(x0, y1, z), x_axis, y_axis, r, math.pi / 2, math.pi),
-        line(part, (-hw, y1, z), (-hw, y0, z)),
-        part.Curves.CreateArc(point(x0, y0, z), x_axis, y_axis, r, math.pi, 3 * math.pi / 2),
-    ]
+    
+    # 4 corner centers
+    # C1 (bottom-right): (hw - r, -hd + r)
+    # C2 (top-right): (hw - r, hd - r)
+    # C3 (top-left): (-hw + r, hd - r)
+    # C4 (bottom-left): (-hw + r, -hd + r)
+    
+    x_axis = vec(1.0, 0.0, 0.0)
+    y_axis = vec(0.0, 1.0, 0.0)
+    
+    curves = []
+    
+    # 1. Front face: from C4_front (-hw + r, -hd) to C1_front (hw - r, -hd)
+    if crown > 0.001:
+        chord = w - 2.0 * r
+        R_crown = (chord**2) / (8.0 * crown) + (crown / 2.0)
+        center_y = -hd - crown + R_crown
+        theta = math.asin((chord / 2.0) / R_crown)
+        curves.append(part.Curves.CreateArc(point(0.0, center_y, z), x_axis, y_axis, R_crown, -math.pi/2.0 - theta, -math.pi/2.0 + theta))
+    else:
+        curves.append(line(part, (-hw + r, -hd, z), (hw - r, -hd, z)))
+        
+    # 2. Corner C1
+    curves.append(part.Curves.CreateArc(point(hw - r, -hd + r, z), x_axis, y_axis, r, -math.pi/2.0, 0.0))
+    
+    # 3. Right side line
+    curves.append(line(part, (hw, -hd + r, z), (hw, hd - r, z)))
+    
+    # 4. Corner C2
+    curves.append(part.Curves.CreateArc(point(hw - r, hd - r, z), x_axis, y_axis, r, 0.0, math.pi/2.0))
+    
+    # 5. Rear face: from C2_rear (hw - r, hd) to C3_rear (-hw + r, hd)
+    if crown > 0.001:
+        chord = w - 2.0 * r
+        R_crown = (chord**2) / (8.0 * crown) + (crown / 2.0)
+        center_y = hd + crown - R_crown
+        theta = math.asin((chord / 2.0) / R_crown)
+        curves.append(part.Curves.CreateArc(point(0.0, center_y, z), x_axis, y_axis, R_crown, math.pi/2.0 - theta, math.pi/2.0 + theta))
+    else:
+        curves.append(line(part, (hw - r, hd, z), (-hw + r, hd, z)))
+        
+    # 6. Corner C3
+    curves.append(part.Curves.CreateArc(point(-hw + r, hd - r, z), x_axis, y_axis, r, math.pi/2.0, math.pi))
+    
+    # 7. Left side line
+    curves.append(line(part, (-hw, hd - r, z), (-hw, -hd + r, z)))
+    
+    # 8. Corner C4
+    curves.append(part.Curves.CreateArc(point(-hw + r, -hd + r, z), x_axis, y_axis, r, math.pi, 3.0 * math.pi/2.0))
+    
     if sketch is not None:
         try:
             sketch.Activate(NXOpen.Sketch.ViewReorient.FalseValue)
@@ -171,6 +195,7 @@ def rounded_rect_curves(part, z: float, w: float, d: float, r: float, sketch=Non
             sketch.Deactivate(NXOpen.Sketch.ViewReorient.FalseValue, NXOpen.Sketch.UpdateLevel.Model)
         except Exception:
             pass
+            
     return curves
 
 
@@ -182,7 +207,7 @@ def section(part, curves):
         curves[0],
         NXOpen.NXObject.Null,
         NXOpen.NXObject.Null,
-        point(0, 0, 0),
+        point(0.0, 0.0, 0.0),
         NXOpen.Section.Mode.Create,
         False,
     )
@@ -194,12 +219,27 @@ def extrude(part, curves, start_rhs: str, end_rhs: str, name: str, target=None):
     try:
         builder.Section = section(part, curves)
         builder.Direction = part.Directions.CreateDirection(
-            point(0, 0, 0),
-            NXOpen.Vector3d(0, 0, 1),
+            point(0.0, 0.0, 0.0),
+            vec(0.0, 0.0, 1.0),
             NXOpen.SmartObject.UpdateOption.WithinModeling,
         )
         builder.Limits.StartExtend.Value.RightHandSide = start_rhs
         builder.Limits.EndExtend.Value.RightHandSide = end_rhs
+        
+        # Apply Draft if extruding the main body
+        if name == "EXTRUDE_TALL_RECTANGULAR_BODY":
+            try:
+                draft_settings = builder.DraftSettings
+                draft_settings.DraftOption = NXOpen.GeometricUtilities.FeatureDraft.Types.FromStartLimit
+                draft_settings.Angle.RightHandSide = "-Draft_Angle" # inward draft
+            except Exception:
+                try:
+                    draft = builder.Draft
+                    draft.DraftOption = NXOpen.GeometricUtilities.SimpleDraftSimpleDraftType.SimpleFromStart
+                    draft.FrontDraftAngle.RightHandSide = "Draft_Angle"
+                except Exception:
+                    pass
+                    
         if target is not None:
             builder.BooleanOperation.SetBooleanOperationAndBody(
                 NXOpen.GeometricUtilities.BooleanOperation.BooleanType.Unite,
@@ -217,54 +257,80 @@ def extrude(part, curves, start_rhs: str, end_rhs: str, name: str, target=None):
 
 def body_feature(part):
     sketch = xy_sketch(part, "SKETCH_ROUNDED_RECTANGLE_BODY_PROFILE")
-    curves = rounded_rect_curves(
+    curves = crowned_rect_curves(
         part,
-        0,
-        v("Bottle_Width"),
-        v("Bottle_Depth"),
+        0.0,
+        v("Overall_Width"),
+        v("Overall_Depth"),
         v("Corner_Radius"),
+        1.0, # 1.0 mm crown
         sketch,
     )
-    return extrude(part, curves, "0", "Body_Height", "EXTRUDE_TALL_RECTANGULAR_BODY")
+    return extrude(part, curves, "0.0", "Body_Height", "EXTRUDE_TALL_RECTANGULAR_BODY")
 
 
-def radius_to_rounded_rect(width: float, depth: float, corner: float, angle: float) -> float:
-    ux, uy = math.cos(angle), math.sin(angle)
-    low, high = 0.0, max(width, depth)
-    hw, hd = width * 0.5, depth * 0.5
-    rr = min(corner, hw - 0.01, hd - 0.01)
-    for _ in range(40):
-        mid = (low + high) * 0.5
-        x, y = mid * ux, mid * uy
-        qx = abs(x) - (hw - rr)
-        qy = abs(y) - (hd - rr)
-        outside = math.hypot(max(qx, 0), max(qy, 0)) + min(max(qx, qy), 0) - rr
-        if outside <= 0:
-            low = mid
-        else:
-            high = mid
-    return low
-
-
-def ring_polyline(part, width: float, depth: float, corner: float, z: float, count: int):
-    pts = []
-    for i in range(count):
-        a = 2 * math.pi * i / count
-        mag = radius_to_rounded_rect(width, depth, corner, a)
-        pts.append((mag * math.cos(a), mag * math.sin(a), z))
-    return [line(part, pts[i], pts[(i + 1) % count]) for i in range(count)]
+def recess_bottom(part, body):
+    rw = v("Overall_Width") - 12.0
+    rd = v("Overall_Depth") - 12.0
+    rc = v("Corner_Radius") - 4.0
+    
+    sketch = xy_sketch(part, "SKETCH_BOTTOM_RECESS_PROFILE")
+    curves = crowned_rect_curves(
+        part,
+        0.0,
+        rw,
+        rd,
+        rc,
+        0.8, # slightly less crown for recessed face
+        sketch,
+    )
+    
+    builder = part.Features.CreateExtrudeBuilder(NXOpen.Features.Feature.Null)
+    try:
+        builder.Section = section(part, curves)
+        builder.Direction = part.Directions.CreateDirection(
+            point(0.0, 0.0, 0.0),
+            vec(0.0, 0.0, 1.0),
+            NXOpen.SmartObject.UpdateOption.WithinModeling,
+        )
+        builder.Limits.StartExtend.Value.RightHandSide = "0.0"
+        builder.Limits.EndExtend.Value.RightHandSide = "1.5" # 1.5 mm recess
+        builder.BooleanOperation.SetBooleanOperationAndBody(
+            NXOpen.GeometricUtilities.BooleanOperation.BooleanType.Subtract,
+            body,
+        )
+        feat = builder.CommitFeature()
+    finally:
+        builder.Destroy()
+    set_name(feat, "EXTRUDE_BOTTOM_RECESS_CUT")
+    
+    bodies = feat.GetBodies()
+    return bodies[0] if bodies else body
 
 
 def shoulder_sections(part, count: int):
     curves_per_section = []
+    
+    # Calculate bottom size of shoulder at Z = Body_Height due to side draft
+    w_start = v("Overall_Width") - 2.0 * v("Body_Height") * math.tan(math.radians(v("Draft_Angle")))
+    d_start = v("Overall_Depth") - 2.0 * v("Body_Height") * math.tan(math.radians(v("Draft_Angle")))
+    r_start = v("Corner_Radius") - v("Body_Height") * math.tan(math.radians(v("Draft_Angle")))
+    
+    w_end = v("Neck_Diameter")
+    d_end = v("Neck_Diameter")
+    r_end = v("Neck_Diameter") * 0.5 - 0.01
+    
     for i in range(9):
         t = i / 8.0
-        s = t * t * (3 - 2 * t)
-        w = v("Bottle_Width") + (v("Neck_Diameter") - v("Bottle_Width")) * s
-        d = v("Bottle_Depth") + (v("Neck_Diameter") - v("Bottle_Depth")) * s
-        c = v("Corner_Radius") + (v("Neck_Diameter") * 0.5 - v("Corner_Radius")) * s
-        z = body_h() + v("Shoulder_Height") * t
-        curves_per_section.append(ring_polyline(part, w, d, c, z, count))
+        s = t * t * (3.0 - 2.0 * t)
+        
+        w = w_start + (w_end - w_start) * s
+        d = d_start + (d_end - d_start) * s
+        r = r_start + (r_end - r_start) * s
+        crown = 1.0 * (1.0 - s)
+        z = v("Body_Height") + v("Shoulder_Height") * t
+        
+        curves_per_section.append(crowned_rect_curves(part, z, w, d, r, crown))
     return curves_per_section
 
 
@@ -298,7 +364,7 @@ def through_curves_shoulder(part, body):
                 return feat, bodies[0]
         except Exception as exc:
             error_text = str(exc)
-    raise RuntimeError(f"Through Curves shoulder did not succeed after regenerating compatible sections: {error_text}")
+    raise RuntimeError(f"Through Curves shoulder did not succeed: {error_text}")
 
 
 def unite(part, target, tool, name: str):
@@ -325,48 +391,12 @@ def circle_profile(part, diameter: float, z: float, n: int = 72):
 
 
 def add_neck(part, body):
-    curves = circle_profile(part, v("Neck_Diameter"), shoulder_top() + v("Retaining_Ring_Height"))
-    _, body = extrude(part, curves, "0", "Neck_Height", "EXTRUDE_SHORT_CENTERED_NECK", body)
-    return body
-
-
-def add_retaining_ring(part, body):
-    z0 = shoulder_top()
-    z1 = shoulder_top() + v("Retaining_Ring_Height")
-    r0 = v("Neck_Diameter") * 0.5
-    r1 = v("Retaining_Ring_Diameter") * 0.5
-    profile = [
-        (r0, 0, z0),
-        (r1, 0, z0),
-        (r1, 0, z1),
-        (r0, 0, z1),
-    ]
-    curves = [line(part, profile[i], profile[(i + 1) % len(profile)]) for i in range(len(profile))]
-    builder = part.Features.CreateRevolveBuilder(NXOpen.Features.Feature.Null)
-    try:
-        builder.Section = section(part, curves)
-        axis = NXOpen.Axis(point(0, 0, 0), NXOpen.Vector3d(0, 0, 1))
-        try:
-            axis = part.Axes.CreateAxis(point(0, 0, 0), NXOpen.Vector3d(0, 0, 1), NXOpen.SmartObject.UpdateOption.WithinModeling)
-        except Exception:
-            pass
-        builder.Axis = axis
-        builder.Limits.StartExtend.Value.RightHandSide = "0"
-        builder.Limits.EndExtend.Value.RightHandSide = "360"
-        try:
-            builder.BooleanOperation.SetBooleanOperationAndBody(
-                NXOpen.GeometricUtilities.BooleanOperation.BooleanType.Unite,
-                body,
-            )
-        except Exception:
-            pass
-        feat = builder.CommitFeature()
-    finally:
-        builder.Destroy()
-    set_name(feat, "REVOLVE_LOW_RETAINING_RING")
-    bodies = feat.GetBodies()
-    if bodies and bodies[0] is not body:
-        body = unite(part, body, bodies[0], "UNITE_RETAINING_RING")
+    z_start = v("Body_Height") + v("Shoulder_Height")
+    w_end = v("Neck_Diameter")
+    d_end = v("Neck_Diameter")
+    r_end = v("Neck_Diameter") * 0.5 - 0.01
+    curves = crowned_rect_curves(part, z_start, w_end, d_end, r_end, 0.0)
+    _, body = extrude(part, curves, "0.0", "Neck_Height", "EXTRUDE_SHORT_CENTERED_NECK", body)
     return body
 
 
@@ -431,9 +461,10 @@ def face_z(face):
 def shell_bottle(part, body):
     body = live_tallest_body(part) or body
     faces = []
+    neck_top_z = v("Body_Height") + v("Shoulder_Height") + v("Neck_Height")
     for face in list(body.GetFaces() or []):
         z = face_z(face)
-        if z is not None and abs(z - neck_top()) < 0.8:
+        if z is not None and abs(z - neck_top_z) < 0.8:
             faces.append(face)
     if not faces:
         raise RuntimeError("Could not identify the neck opening face for Shell.")
@@ -473,11 +504,11 @@ def cylinder(part, origin_z: float, diameter_rhs: str, height_rhs: str, name: st
     builder = part.Features.CreateCylinderBuilder(NXOpen.Features.Feature.Null)
     try:
         direction = part.Directions.CreateDirection(
-            point(0, 0, origin_z),
-            NXOpen.Vector3d(0, 0, 1),
+            point(0.0, 0.0, origin_z),
+            vec(0.0, 0.0, 1.0),
             NXOpen.SmartObject.UpdateOption.WithinModeling,
         )
-        builder.Axis.Point.SetCoordinates(point(0, 0, origin_z))
+        builder.Axis.Point.SetCoordinates(point(0.0, 0.0, origin_z))
         builder.Axis.Direction = direction
         builder.Diameter.RightHandSide = diameter_rhs
         builder.Height.RightHandSide = height_rhs
@@ -489,66 +520,60 @@ def cylinder(part, origin_z: float, diameter_rhs: str, height_rhs: str, name: st
     return feat, bodies[0] if bodies else None
 
 
-def cap_with_ribs(part):
-    cap_z = neck_top()
-    _, cap = cylinder(part, cap_z, "Cap_Diameter", "Cap_Height", "CYLINDER_COMPACT_RIBBED_CAP")
-    if cap is None:
-        raise RuntimeError("Cap cylinder did not create a body.")
-    blend_edges(
-        part,
-        cap,
-        lambda e: edge_horizontal(e)
-        and (abs(edge_mid(e)[2] - cap_z) < 0.2 or abs(edge_mid(e)[2] - (cap_z + v("Cap_Height"))) < 0.2),
-        "0.5",
-        "EDGE_BLEND_CAP_ENDS",
-    )
-    rib_width = math.pi * v("Cap_Diameter") / v("Cap_Rib_Count") * 0.35
+def create_cap_revolve(part):
+    cap_z_start = v("Body_Height") + v("Shoulder_Height") + v("Neck_Height")
     r = v("Cap_Diameter") * 0.5
-    curves = [
-        line(part, (r - 0.05, -rib_width * 0.5, cap_z + 1.0), (r + v("Cap_Rib_Depth"), -rib_width * 0.35, cap_z + 1.0)),
-        line(part, (r + v("Cap_Rib_Depth"), -rib_width * 0.35, cap_z + 1.0), (r + v("Cap_Rib_Depth"), rib_width * 0.35, cap_z + 1.0)),
-        line(part, (r + v("Cap_Rib_Depth"), rib_width * 0.35, cap_z + 1.0), (r - 0.05, rib_width * 0.5, cap_z + 1.0)),
-        line(part, (r - 0.05, rib_width * 0.5, cap_z + 1.0), (r - 0.05, -rib_width * 0.5, cap_z + 1.0)),
+    h = v("Cap_Height")
+    
+    # Profile in XZ plane
+    pts = [
+        (0.0, 0.0, cap_z_start),
+        (r, 0.0, cap_z_start),
+        (r, 0.0, cap_z_start + h),
+        (0.0, 0.0, cap_z_start + h),
     ]
-    rib_feat, _ = extrude(
-        part,
-        curves,
-        "0",
-        "Cap_Height - 2.0",
-        "EXTRUDE_SINGLE_CAP_GRIP_RIB",
-        cap,
+    curves = [
+        line(part, pts[0], pts[1]),
+        line(part, pts[1], pts[2]),
+        line(part, pts[2], pts[3]),
+        line(part, pts[3], pts[0]),
+    ]
+    
+    tags = [curve.Tag for curve in curves]
+    features, number_of_features = UF.Modl.CreateRevolution(
+        tags,
+        len(tags),
+        None,
+        ["0.0", "360.0"],
+        ["0", "0"],
+        [0.0, 0.0, 0.0],
+        False,
+        True,
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        NXOpen.UF.Modl.FeatureSigns.NULLSIGN,
     )
-    builder = part.Features.CreatePatternFeatureBuilder(NXOpen.Features.Feature.Null)
-    try:
-        builder.FeatureList.Add([rib_feat])
-        try:
-            builder.PatternMethod = NXOpen.Features.PatternFeatureBuilder.PatternMethodOptions.Simple
-        except Exception:
-            pass
-        service = builder.PatternService
-        service.PatternType = NXOpen.GeometricUtilities.PatternDefinition.PatternEnum.Circular
-        circ = service.CircularDefinition
-        circ.RotationAxis = part.Axes.CreateAxis(point(0, 0, cap_z), NXOpen.Vector3d(0, 0, 1), NXOpen.SmartObject.UpdateOption.WithinModeling)
-        circ.RotationCenter = part.Points.CreatePoint(point(0, 0, cap_z))
-        circ.IncludeSeedToggle = True
-        circ.AngularSpacing.NCopies.RightHandSide = "Cap_Rib_Count"
-        circ.AngularSpacing.PitchAngle.RightHandSide = "Cap_Rib_Angle"
-        feat = builder.CommitFeature()
-    finally:
-        builder.Destroy()
-    set_name(feat, "CIRCULAR_FEATURE_ARRAY_CAP_RIBS")
-    return cap
+    if not features or number_of_features < 1:
+        raise RuntimeError("Cap Revolve did not create a feature")
+    feature = NXOpen.TaggedObjectManager().GetTaggedObject(features[0])
+    set_name(feature, "REVOLVE_BOTTLE_CAP")
+    bodies = feature.GetBodies()
+    cap_body = bodies[0] if bodies else None
+    if cap_body:
+        cap_body.SetName("Bottle_Cap")
+    return feature, cap_body
 
 
-def write_launch_files(path: Path) -> None:
-    root = Path(__file__).resolve().parents[3]
-    (root / "latest_nx_result.txt").write_text(str(path), encoding="utf-8")
-    base = os.environ.get("UGII_BASE_DIR") or r"C:\Program Files\Siemens\NX2206"
-    router = Path(base) / "NXBIN" / "ugs_router.exe"
-    (root / "open_current_nx_result.cmd").write_text(
-        f'@echo off\nstart "" "{router}" -ug -use_file_dir "{path}"\n',
-        encoding="utf-8",
-    )
+def name_bodies(part):
+    bodies = list(part.Bodies or [])
+    for b in bodies:
+        min_pt, max_pt = body_bounds(b)
+        if min_pt[2] > 190.0:
+            b.SetName("Bottle_Cap")
+            set_name(b, "Bottle_Cap")
+        else:
+            b.SetName("Bottle_Body")
+            set_name(b, "Bottle_Body")
 
 
 def main() -> None:
@@ -560,31 +585,112 @@ def main() -> None:
     session.Parts.NewDisplay(str(path), NXOpen.Part.Units.Millimeters)
     part = session.Parts.Work
 
-    print("Building premium parametric body wash bottle")
+    print("Building premium body-wash bottle model")
     make_expressions(part)
+    
+    # 1. Main Bottle Body
     _, body = body_feature(part)
+    
+    # 2. Bottom Edge Blend
+    blend_edges(part, body, lambda e: edge_horizontal(e) and abs(edge_mid(e)[2]) < 0.2, "Bottom_Blend", "EDGE_BLEND_BODY_BOTTOM")
+    
+    # 3. Shoulder Transition
     _, shoulder = through_curves_shoulder(part, body)
-    body = unite(part, body, shoulder, "UNITE_BODY_AND_SINGLE_SHOULDER")
-    body = add_retaining_ring(part, body)
+    body = unite(part, body, shoulder, "UNITE_BODY_AND_SHOULDER")
+    
+    # 4. Neck Extrude
     body = add_neck(part, body)
+    
+    # 5. Shell Bottle
     body = shell_bottle(part, body)
-    blend_edges(part, body, lambda e: edge_horizontal(e) and abs(edge_mid(e)[2]) < 0.3, "Bottom_Fillet", "EDGE_BLEND_BODY_BOTTOM")
-    blend_edges(part, body, lambda e: edge_horizontal(e) and abs(edge_mid(e)[2] - shoulder_top()) < 0.3, "Top_Fillet", "EDGE_BLEND_SHOULDER_NECK")
-    cap = cap_with_ribs(part)
-
+    
+    # 6. Bottom Recess
+    body = recess_bottom(part, body)
+    
+    # 7. Cap Revolve
+    _, cap_body = create_cap_revolve(part)
+    if cap_body is None:
+        raise RuntimeError("Cap revolve failed to build body.")
+        
+    # Cap Blends
+    cap_z_start = v("Body_Height") + v("Shoulder_Height") + v("Neck_Height")
+    cap_h = v("Cap_Height")
+    
+    blend_edges(
+        part,
+        cap_body,
+        lambda e: edge_horizontal(e) and abs(edge_mid(e)[2] - (cap_z_start + cap_h)) < 0.2,
+        "2.0", # Top Edge Radius = 2 mm
+        "EDGE_BLEND_CAP_TOP"
+    )
+    blend_edges(
+        part,
+        cap_body,
+        lambda e: edge_horizontal(e) and abs(edge_mid(e)[2] - cap_z_start) < 0.2,
+        "1.5", # Bottom Edge Radius = 1.5 mm
+        "EDGE_BLEND_CAP_BOTTOM"
+    )
+    
+    # 8. Grip Ribs & Circular Pattern
+    r = v("Cap_Diameter") * 0.5
+    rw = v("Rib_Width")
+    rd = v("Rib_Depth")
+    z_start = cap_z_start + 3.0 # center 24mm ribs on the 30mm cap height
+    
+    curves = [
+        line(part, (r - 0.05, -rw * 0.5, z_start), (r + rd, -rw * 0.5, z_start)),
+        line(part, (r + rd, -rw * 0.5, z_start), (r + rd, rw * 0.5, z_start)),
+        line(part, (r + rd, rw * 0.5, z_start), (r - 0.05, rw * 0.5, z_start)),
+        line(part, (r - 0.05, rw * 0.5, z_start), (r - 0.05, -rw * 0.5, z_start)),
+    ]
+    
+    rib_feat, _ = extrude(
+        part,
+        curves,
+        "0.0",
+        "24.0", # Rib_Height = 24 mm
+        "EXTRUDE_SINGLE_CAP_RIB",
+        cap_body
+    )
+    
+    builder = part.Features.CreatePatternFeatureBuilder(NXOpen.Features.Feature.Null)
     try:
-        print(f"Bottle faces: {len(list(body.GetFaces() or []))}; cap faces: {len(list(cap.GetFaces() or []))}")
+        builder.FeatureList.Add([rib_feat])
+        try:
+            builder.PatternMethod = NXOpen.Features.PatternFeatureBuilder.PatternMethodOptions.Simple
+        except Exception:
+            pass
+        service = builder.PatternService
+        service.PatternType = NXOpen.GeometricUtilities.PatternDefinition.PatternEnum.Circular
+        circ = service.CircularDefinition
+        circ.RotationAxis = part.Axes.CreateAxis(point(0.0, 0.0, cap_z_start), vec(0.0, 0.0, 1.0), NXOpen.SmartObject.UpdateOption.WithinModeling)
+        circ.RotationCenter = part.Points.CreatePoint(point(0.0, 0.0, cap_z_start))
+        circ.IncludeSeedToggle = True
+        circ.AngularSpacing.NCopies.RightHandSide = "Rib_Count"
+        circ.AngularSpacing.PitchAngle.RightHandSide = "Cap_Rib_Angle"
+        feat = builder.CommitFeature()
+    finally:
+        builder.Destroy()
+    set_name(feat, "CIRCULAR_PATTERN_CAP_RIBS")
+    
+    # 9. Set solid body names
+    name_bodies(part)
+    
+    try:
         part.ModelingViews.WorkView.Fit()
     except Exception:
         pass
     part.Save(NXOpen.BasePart.SaveComponents.TrueValue, NXOpen.BasePart.CloseAfterSave.FalseValue)
-    write_launch_files(path)
-    router = Path(os.environ.get("UGII_BASE_DIR") or r"C:\Program Files\Siemens\NX2206") / "NXBIN" / "ugs_router.exe"
-    if router.exists():
-        try:
-            subprocess.Popen([str(router), "-ug", "-use_file_dir", str(path)])
-        except Exception:
-            pass
+    
+    # Write launcher files
+    root = Path(__file__).resolve().parents[3]
+    (root / "latest_nx_result.txt").write_text(str(path), encoding="utf-8")
+    base = os.environ.get("UGII_BASE_DIR") or r"C:\Program Files\Siemens\NX2206"
+    router = Path(base) / "NXBIN" / "ugs_router.exe"
+    (root / "open_current_nx_result.cmd").write_text(
+        f'@echo off\nstart "" "{router}" -ug -use_file_dir "{path}"\n',
+        encoding="utf-8",
+    )
     print(f"Saved: {path}")
 
 

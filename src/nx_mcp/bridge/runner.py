@@ -1,6 +1,8 @@
+import atexit
 import json
 import os
 import subprocess
+import sys
 import threading
 import socket
 import time
@@ -17,7 +19,8 @@ def get_root_dir():
             if (parent / ".git").exists() or parent.name == "nx-mcp":
                 return parent
         return file_path.parents[3]
-    except Exception:
+    except Exception as e:
+        sys.stderr.write(f"[WARN] get_root_dir fallback to cwd: {e}\n")
         return Path(os.getcwd())
 
 ROOT_DIR = get_root_dir()
@@ -56,8 +59,8 @@ def _update_watcher_files(filepath):
                 f'Set shell = CreateObject("WScript.Shell")\nshell.Run """{ugs_router_path}"" -ug -use_file_dir ""{abs_path}""", 0, False\n',
                 encoding="utf-8"
             )
-    except Exception:
-        pass
+    except Exception as e:
+        sys.stderr.write(f"[WARN] _update_watcher_files failed: {e}\n")
 
 
 def _bridge_script_path():
@@ -131,7 +134,8 @@ def launch_interactive_nx(part_path=None, port=LIVE_PORT):
         json.dump(config, f)
 
     bridge_script = _bridge_script_path()
-    subprocess.Popen([str(ugraf_path), f"-auto={bridge_script}"])
+    ugraf_proc = subprocess.Popen([str(ugraf_path), f"-auto={bridge_script}"])
+    NXBridgeProcess._ugraf_proc = ugraf_proc
 
     # Poll connection
     start_time = time.time()
@@ -146,6 +150,7 @@ def launch_interactive_nx(part_path=None, port=LIVE_PORT):
 
 class NXBridgeProcess:
     _proc = None
+    _ugraf_proc = None
     _lock = threading.Lock()
 
     @classmethod
@@ -158,19 +163,32 @@ class NXBridgeProcess:
                 except Exception:
                     pass
 
+            # Terminate run_journal.exe subprocess
             proc = cls._proc
             cls._proc = None
-            if proc is None or proc.poll() is not None:
-                return
-            try:
-                proc.stdin.close()
-            except Exception:
-                pass
-            try:
-                proc.terminate()
-                proc.wait(timeout=10)
-            except Exception:
-                proc.kill()
+            if proc is not None and proc.poll() is None:
+                try:
+                    proc.stdin.close()
+                except Exception:
+                    pass
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=10)
+                except Exception:
+                    proc.kill()
+
+            # Terminate ugraf.exe (interactive NX GUI)
+            ugraf = cls._ugraf_proc
+            cls._ugraf_proc = None
+            if ugraf is not None and ugraf.poll() is None:
+                try:
+                    ugraf.terminate()
+                    ugraf.wait(timeout=10)
+                except Exception:
+                    try:
+                        ugraf.kill()
+                    except Exception:
+                        pass
 
     @classmethod
     def _start(cls):
@@ -203,43 +221,53 @@ class NXBridgeProcess:
         elif tool == "open_part":
             part_path = args.get("filepath")
 
-        # 3. Check if active socket server is running
-        s = try_connect_socket(LIVE_PORT)
-        if s is None:
-            # Not running. If we need to open or create, launch interactive NX GUI
-            if tool in ("create_part", "open_part"):
-                launched = launch_interactive_nx(part_path, LIVE_PORT)
-                if launched:
-                    s = try_connect_socket(LIVE_PORT)
-
-        # 4. If socket is connected, execute command live in the GUI!
-        if s is not None:
-            try:
-                payload = json.dumps({"tool": tool, "args": args}) + "\n"
-                s.sendall(payload.encode("utf-8"))
-                # Read response line
-                buffer = ""
-                while "\n" not in buffer:
-                    chunk = s.recv(4096).decode("utf-8")
-                    if not chunk:
-                        break
-                    buffer += chunk
-                
-                if "\n" in buffer:
-                    line, _ = buffer.split("\n", 1)
-                    res = json.loads(line)
-                    if res.get("ok"):
-                        p = args.get("filename") if tool == "create_part" else (args.get("filepath") if tool == "open_part" else res.get("filepath"))
-                        if p:
-                            _update_watcher_files(p)
-                    return res
-            except Exception as e:
-                return {"ok": False, "error": f"Socket communication error: {e}"}
-            finally:
-                s.close()
-
-        # 5. Fallback: Batch mode using run_journal.exe
+        # 3-5 are serialized: only one tool call at a time
         with cls._lock:
+            # 3. Check if active socket server is running
+            s = try_connect_socket(LIVE_PORT)
+            if s is None:
+                # Not running. If we need to open or create, launch interactive NX GUI
+                if tool in ("create_part", "open_part"):
+                    launched = launch_interactive_nx(part_path, LIVE_PORT)
+                    if launched:
+                        s = try_connect_socket(LIVE_PORT)
+
+            # 4. If socket is connected, execute command live in the GUI!
+            if s is not None:
+                try:
+                    s.settimeout(120)
+                    payload = json.dumps({"tool": tool, "args": args}) + "\n"
+                    s.sendall(payload.encode("utf-8"))
+                    # Read response line
+                    buffer = ""
+                    while "\n" not in buffer:
+                        chunk = s.recv(4096).decode("utf-8")
+                        if not chunk:
+                            break
+                        buffer += chunk
+                    
+                    if "\n" in buffer:
+                        line, _ = buffer.split("\n", 1)
+                        res = json.loads(line)
+                        if res.get("ok"):
+                            p = args.get("filename") if tool == "create_part" else (args.get("filepath") if tool == "open_part" else res.get("filepath"))
+                            if p:
+                                _update_watcher_files(p)
+                                try:
+                                    _, _, ugs_router = verify_nx_environment()
+                                    subprocess.Popen([str(ugs_router), "-ug", "-use_file_dir", str(Path(p).resolve())])
+                                except Exception as e:
+                                    sys.stderr.write(f"[WARN] Failed to auto-open in NX: {e}\n")
+                        return res
+                    return {"ok": False, "error": "NX bridge socket closed without sending a response"}
+                except socket.timeout:
+                    return {"ok": False, "error": "NX bridge timed out after 120s — NX may be hung or processing a very long operation"}
+                except Exception as e:
+                    return {"ok": False, "error": f"Socket communication error: {e}"}
+                finally:
+                    s.close()
+
+            # 5. Fallback: Batch mode using run_journal.exe
             cls._ensure_started()
 
             payload = json.dumps({"tool": tool, "args": args})
@@ -277,3 +305,7 @@ def reset_nx_bridge():
 
 def run_tool(tool, **args):
     return call_nx(tool, args)
+
+
+# Ensure NX processes are cleaned up when the Python process exits
+atexit.register(NXBridgeProcess.reset)

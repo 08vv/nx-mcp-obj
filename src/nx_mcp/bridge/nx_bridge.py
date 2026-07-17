@@ -96,8 +96,9 @@ def _eval_val(val):
         pass
     
     work_part = _ensure_work_part()
-    import random
-    temp_name = f"EVAL_{int(time.time())}_{random.randint(0, 1000)}"
+    counter = _expression_counters.get("EVAL_TEMP", 1)
+    temp_name = f"EVAL_TEMP_{counter}"
+    _expression_counters["EVAL_TEMP"] = counter + 1
     try:
         exp = work_part.Expressions.CreateExpression("Number", f"{temp_name} = {val_str}")
         res = exp.Value
@@ -115,13 +116,20 @@ def _default_part_path():
     return str(ROOT_DIR.joinpath("nx_mcp_result.prt").resolve())
 
 
+_counters_seeded = False
+
 def _ensure_work_part():
+    global _counters_seeded
     if SESSION.Parts.Work is None:
         SESSION.Parts.NewDisplay(
             _default_part_path(),
             NXOpen.Part.Units.Millimeters,
         )
-    return SESSION.Parts.Work
+    work_part = SESSION.Parts.Work
+    if not _counters_seeded and work_part is not None:
+        _seed_counters_from_part(work_part)
+        _counters_seeded = True
+    return work_part
 
 
 def _resolve_direction(direction):
@@ -191,6 +199,51 @@ def _next_instance_prefix(feature_type):
     count = _instance_counters.get(feature_type, 0) + 1
     _instance_counters[feature_type] = count
     return f"{feature_type}_{count}"
+
+
+import re
+_INSTANCE_PREFIX_RE = re.compile(r"^([A-Z_]+)_(\d+)_")
+
+def _seed_counters_from_part(work_part):
+    """Scan existing NX expressions in the part to seed in-memory counters.
+
+    This prevents name collisions after a process restart when the part
+    already contains expressions like CUBOID_3_L, FILLET_5_R, etc.
+    """
+    global _counters_seeded
+    if not hasattr(work_part, "Expressions"):
+        return
+    try:
+        expressions = list(work_part.Expressions)
+    except Exception:
+        return
+
+    for expr in expressions:
+        try:
+            name = expr.Name
+        except Exception:
+            continue
+
+        # Match instance prefix pattern: e.g. "CUBOID_3_L" → feature_type="CUBOID", instance=3
+        m = _INSTANCE_PREFIX_RE.match(name)
+        if m:
+            feature_type = m.group(1)
+            instance_num = int(m.group(2))
+            current = _instance_counters.get(feature_type, 0)
+            if instance_num > current:
+                _instance_counters[feature_type] = instance_num
+
+        # Also seed _expression_counters for legacy PREFIXED_N names (e.g. "CUBOID_L_3")
+        # Find last underscore-delimited number
+        parts = name.rsplit("_", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            prefix = parts[0]
+            num = int(parts[1])
+            current = _expression_counters.get(prefix, 1)
+            if num + 1 > current:
+                _expression_counters[prefix] = num + 1
+
+    _counters_seeded = True
 
 
 def _create_input_expression(work_part, name, value):
@@ -686,11 +739,12 @@ def _update_result_files(filepath):
             vbs_path = os.path.join(root, "open_latest_nx_result.vbs")
             with open(vbs_path, "w", encoding="utf-8") as f:
                 f.write(f'Set shell = CreateObject("WScript.Shell")\nshell.Run """{ugs_router_path}"" -ug -use_file_dir ""{abs_path}""", 0, False\n')
-    except Exception:
-        pass
+    except Exception as e:
+        sys.stderr.write(f"[WARN] _update_result_files failed: {e}\n")
 
 
 def create_part(filename):
+    global _counters_seeded
     SESSION.Parts.NewDisplay(
         filename,
         NXOpen.Part.Units.Millimeters,
@@ -698,6 +752,12 @@ def create_part(filename):
     work_part = SESSION.Parts.Work
     if work_part is None:
         return {"ok": False, "error": "Part created but work part not set"}
+    # Reset and re-seed counters for the new part
+    _expression_counters.clear()
+    _instance_counters.clear()
+    _counters_seeded = False
+    _seed_counters_from_part(work_part)
+    _counters_seeded = True
     fit_view()
     import os
     filepath = os.path.abspath(filename)
@@ -706,14 +766,22 @@ def create_part(filename):
 
 
 def open_part(filepath):
+    global _counters_seeded
     try:
         # OpenDisplay opens the part AND makes it the active display/work part
         SESSION.Parts.OpenDisplay(filepath)
     except Exception:
         # Fallback for NX versions where OpenDisplay signature differs
         SESSION.Parts.Open(filepath)
-    fit_view()
+    # Reset and re-seed counters for the opened part
+    _expression_counters.clear()
+    _instance_counters.clear()
+    _counters_seeded = False
     work_part = SESSION.Parts.Work
+    if work_part is not None:
+        _seed_counters_from_part(work_part)
+        _counters_seeded = True
+    fit_view()
     import os
     actual_path = os.path.abspath(work_part.FullPath if work_part else filepath)
     _update_result_files(actual_path)
@@ -1289,22 +1357,26 @@ def create_offset_linkage_arm(output_path=None):
     main_body = _get_body()
 
     # ========== Edge Blend (F14) ==========
+    warnings = []
     try:
         add_fillet(BLEND_R, "last", "outer_edges")
         main_body = _get_body()
     except Exception as e:
-        pass
+        sys.stderr.write(f"[WARN] Edge blend in create_offset_linkage_arm failed: {e}\n")
+        warnings.append(f"fillet failed ({e})")
 
     # ========== Chamfer (F15) ==========
     try:
         add_chamfer(CHAM_O, "last", "top_edges")
         main_body = _get_body()
     except Exception as e:
-        pass
+        sys.stderr.write(f"[WARN] Chamfer in create_offset_linkage_arm failed: {e}\n")
+        warnings.append(f"chamfer failed ({e})")
 
     # ========== Fit view ==========
     fit_view()
 
+    warn_str = f" (warnings: {', '.join(warnings)})" if warnings else ""
     return {
         "ok": True,
         "message": (
@@ -1312,7 +1384,7 @@ def create_offset_linkage_arm(output_path=None):
             f"ARM_LENGTH={ARM_L} ARM_WIDTH={ARM_W} ARM_THICK={ARM_T} "
             f"END_RADIUS={END_R} HOLE_DIA={HOLE_D} HOLE_OFFSET={HOLE_O} "
             f"CYLINDER_DIA={CYL_D} CYLINDER_HEIGHT={CYL_H} "
-            f"Total height={Z_UPPER_TOP}mm"
+            f"Total height={Z_UPPER_TOP}mm{warn_str}"
         ),
     }
 
@@ -3976,6 +4048,8 @@ def edit_expression(name, value):
         )
     except Exception as e:
         return {"ok": False, "error": f"Failed to save part: {e}"}
+
+    return {"ok": True, "message": f"Expression '{name}' updated to {value}"}
 
 def get_diagnostics():
     try:

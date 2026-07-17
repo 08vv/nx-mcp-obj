@@ -284,5 +284,14 @@ def main():
         except Exception:
             pass
 
+    # Automatically open the generated .prt file in NX
+    try:
+        import os
+        print("Opening {} in NX...".format(output.name))
+        os.startfile(str(output))
+    except Exception as e:
+        print("[WARN] Could not open file automatically: {}".format(e))
+
+
 if __name__ == "__main__":
     main()

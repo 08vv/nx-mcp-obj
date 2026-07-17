@@ -61,6 +61,15 @@ def main():
     print("  Bottle_Cap.prt:  {}".format(cap_output))
     print("=" * 60)
 
+    # Automatically open the generated .prt files in NX
+    try:
+        import os
+        print("Opening generated parts in NX...")
+        os.startfile(str(body_output))
+        os.startfile(str(cap_output))
+    except Exception as e:
+        print("[WARN] Could not open files automatically: {}".format(e))
+
 
 if __name__ == "__main__":
     main()
