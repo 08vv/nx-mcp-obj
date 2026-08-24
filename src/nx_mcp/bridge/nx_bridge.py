@@ -4181,7 +4181,14 @@ def list_features():
         work_part = SESSION.Parts.Work
         if work_part is None:
             return {"ok": True, "message": "Features: none"}
-        features = list(work_part.Features.ToArray() or [])
+        features = []
+        try:
+            for feature in work_part.Features:
+                features.append(feature)
+        except Exception:
+            to_array = getattr(work_part.Features, "ToArray", None)
+            if callable(to_array):
+                features = list(to_array() or [])
         names = [_feature_name(f) for f in features]
         return {"ok": True, "message": "Features: " + (", ".join(names) if names else "none")}
     except Exception as e:
