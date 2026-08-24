@@ -47,10 +47,12 @@ def find_run_journal() -> Path:
 
 
 def packaged_journal(name: str) -> Path:
-    return Path(resources.files("nx_mcp.journals").joinpath(name))
+    return Path(resources.files("nx_mcp").joinpath(name))
 
 
-def run_journal(journal_path: str | Path, *args: str, timeout: int = 120) -> JournalResult:
+def run_journal(
+    journal_path: str | Path, *args: str, timeout: int = 120
+) -> JournalResult:
     journal = Path(journal_path)
     if not journal.exists():
         raise NXBridgeError(f"Journal file does not exist: {journal}")

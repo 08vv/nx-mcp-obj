@@ -14,7 +14,16 @@ dev = ["pytest"]
 [project.scripts]
 nx-mcp = "nx_mcp.server:main"
 nx-mcp-http = "nx_mcp.http_server:main"
-nx-mcp-nx = "nx_mcp.nx_bridge:main"
+nx-mcp-nx = "nx_mcp.cli_validate:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+nx_mcp = [
+    "**/*.py",
+    "**/*.md",
+    "**/*.prt",
+    "**/*.txt"
+]
+

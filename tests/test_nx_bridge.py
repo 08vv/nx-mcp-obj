@@ -1,6 +1,6 @@
 import subprocess
 
-from nx_mcp import nx_bridge
+from nx_mcp import cli_validate as nx_bridge
 
 
 def test_find_run_journal_from_ugii_base_dir(monkeypatch, tmp_path):
