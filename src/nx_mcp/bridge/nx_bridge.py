@@ -4512,18 +4512,36 @@ def handle_line(line):
     if "last_curves" in _state:
         old_state["last_curves"] = list(_state["last_curves"])
 
+    # Set NX undo mark before command execution
+    undo_mark = None
+    try:
+        if SESSION is not None and hasattr(SESSION, "SetUndoMark"):
+            undo_mark = SESSION.SetUndoMark(
+                NXOpen.Session.MarkVisibility.Invisible, "nx_mcp_command"
+            )
+    except Exception as e:
+        sys.stderr.write(f"Failed to set NX undo mark: {e}\n")
+
+    def _rollback_nx():
+        _state.clear()
+        _state.update(old_state)
+        if undo_mark is not None and SESSION is not None:
+            try:
+                if hasattr(SESSION, "UndoToMark"):
+                    SESSION.UndoToMark(undo_mark, "nx_mcp_command")
+            except Exception as rollback_err:
+                sys.stderr.write(f"NX UndoToMark rollback failed: {rollback_err}\n")
+
     try:
         command = json.loads(line)
         res = dispatch(command)
         if isinstance(res, dict) and not res.get("ok"):
-            # Command returned error status, restore state
-            _state.clear()
-            _state.update(old_state)
+            # Command returned error status, restore state and roll back NX geometry
+            _rollback_nx()
         return res
     except Exception as exc:
-        # Command raised exception, restore state
-        _state.clear()
-        _state.update(old_state)
+        # Command raised exception, restore state and roll back NX geometry
+        _rollback_nx()
         return {
             "ok": False,
             "error": str(exc),
