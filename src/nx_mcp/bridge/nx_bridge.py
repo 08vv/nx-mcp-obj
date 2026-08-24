@@ -2919,9 +2919,18 @@ def pattern_circular(
         # Try CircularDefinition first (NX 10+)
         circ = getattr(service, "CircularDefinition", None)
         if circ is not None:
-            circ.RotationDirection = nx_dir
-            circ.NCopies.RightHandSide = count_name
-            circ.PitchAngle.RightHandSide = f"{angle_name} / ({count_name} - 1)"
+            # Set RotationAxis and RotationCenter
+            origin_pt = NXOpen.Point3d(0.0, 0.0, 0.0)
+            dir_vector = _direction_vector(resolved_axis)
+            axis_obj = work_part.Axes.CreateAxis(origin_pt, dir_vector, NXOpen.SmartObjectUpdateOption.WithinModeling)
+            
+            circ.RotationAxis = axis_obj
+            circ.RotationCenter = work_part.Points.CreatePoint(origin_pt)
+            
+            # Set spacing type to count and span (PitchAndSpan)
+            circ.AngularSpacing.SpaceType = NXOpen.GeometricUtilities.PatternSpacingSpacingType.PitchAndSpan
+            circ.AngularSpacing.NCopies.RightHandSide = count_name
+            circ.AngularSpacing.SpanAngle.RightHandSide = angle_name
             if hasattr(service, "PatternType"):
                 try:
                     service.PatternType = getattr(
