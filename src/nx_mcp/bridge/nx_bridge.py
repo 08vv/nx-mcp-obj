@@ -313,21 +313,73 @@ def _body_name(body):
     return f"body_{getattr(body, 'Tag', id(body))}"
 
 
+def _snapshot_body_state(body=None):
+    if body is None:
+        try:
+            body = _resolve_body("last")
+        except Exception:
+            body = None
+    if body is None:
+        return set(), set()
+
+    edges = getattr(body, "GetEdges", lambda: [])() or []
+    faces = getattr(body, "GetFaces", lambda: [])() or []
+
+    edge_tags = {e.Tag for e in edges if getattr(e, "Tag", None)}
+    face_tags = {f.Tag for f in faces if getattr(f, "Tag", None)}
+    return edge_tags, face_tags
+
+
 def _remember_feature(feature):
     if feature is None:
         return feature
 
     name = _feature_name(feature)
     _state["last_feature"] = feature
-    _state["features"][name.lower()] = feature
 
+    body = None
     get_bodies = getattr(feature, "GetBodies", None)
     if callable(get_bodies):
         try:
-            for body in get_bodies() or []:
+            bodies = get_bodies() or []
+            if bodies:
+                body = bodies[0]
                 _remember_body(body)
         except Exception:
             pass
+
+    if body is None:
+        try:
+            body = _resolve_body("last")
+        except Exception:
+            body = None
+
+    post_edge_tags, post_face_tags = _snapshot_body_state(body)
+    pre_edge_tags = _state.get("pre_body_edges", set())
+    pre_face_tags = _state.get("pre_body_faces", set())
+
+    delta_edge_tags = list(post_edge_tags - pre_edge_tags)
+    delta_face_tags = list(post_face_tags - pre_face_tags)
+
+    feature_entities = getattr(feature, "GetEntities", lambda: [])() or []
+    for ent in feature_entities:
+        ent_tag = getattr(ent, "Tag", None)
+        if ent_tag:
+            type_name = type(ent).__name__
+            if "Edge" in type_name and ent_tag not in delta_edge_tags:
+                delta_edge_tags.append(ent_tag)
+            elif "Face" in type_name and ent_tag not in delta_face_tags:
+                delta_face_tags.append(ent_tag)
+
+    _state["features"][name.lower()] = {
+        "feature": feature,
+        "edge_tags": delta_edge_tags,
+        "face_tags": delta_face_tags,
+    }
+
+    _state["pre_body_edges"] = post_edge_tags
+    _state["pre_body_faces"] = post_face_tags
+
     return feature
 
 
@@ -378,11 +430,13 @@ def _resolve_feature(reference="last"):
             return feature
 
     if ref in _state["features"]:
-        return _state["features"][ref]
+        val = _state["features"][ref]
+        return val["feature"] if isinstance(val, dict) and "feature" in val else val
 
     for feature in _iter_features(work_part):
         name = _feature_name(feature).lower()
-        _state["features"][name] = feature
+        if name not in _state["features"]:
+            _state["features"][name] = feature
         if ref == name or ref in name:
             return feature
 
@@ -474,6 +528,29 @@ def _resolve_edges(body_reference="last", edge_reference="outer_edges"):
         raise SelectionError(f"No edges found on body reference: {body_reference}")
 
     ref = str(edge_reference or "all").strip().lower().replace("-", "_")
+
+    # Feature-scoped edge lookup check
+    feature_ref_key = ref.removeprefix("feature:").strip()
+    if feature_ref_key in _state.get("features", {}):
+        feat_meta = _state["features"][feature_ref_key]
+        if isinstance(feat_meta, dict) and "edge_tags" in feat_meta:
+            target_tags = set(feat_meta["edge_tags"])
+            matched = [e for e in edges if getattr(e, "Tag", None) in target_tags]
+            if matched:
+                return matched
+            raise SelectionError(
+                f"Feature '{feature_ref_key}' has no surviving edges on active body after boolean/modifying operations."
+            )
+        elif hasattr(feat_meta, "GetEntities"):
+            feat_entities = feat_meta.GetEntities() or []
+            feat_edge_tags = {e.Tag for e in feat_entities if getattr(e, "Tag", None) and "Edge" in type(e).__name__}
+            matched = [e for e in edges if getattr(e, "Tag", None) in feat_edge_tags]
+            if matched:
+                return matched
+            raise SelectionError(
+                f"Feature '{feature_ref_key}' has no surviving edges on active body after boolean/modifying operations."
+            )
+
     if ref in {"all", "all_edges", "outer", "outer_edges"}:
         return edges
 
@@ -1003,9 +1080,253 @@ def draw_cylinder_profile(outer_radius, inner_radius):
     outer = _create_xy_arc(outer_radius)
     inner = _create_xy_arc(inner_radius)
     _state["last_curves"] = [outer, inner]
+    _state.setdefault("curve_history", []).extend([outer, inner])
     return {
         "ok": True,
         "message": f"Cylinder profile outer R={outer_radius} inner R={inner_radius}",
+    }
+
+
+def draw_spline(points, degree=3, closed=False, plane="active"):
+    """
+    Draw a Studio Spline through 2D active-sketch-plane or 3D world points.
+    Accepts point list as array pairs [[x, y], ...] or dict objects [{"x": ..., "y": ...}, ...].
+    """
+    degree = int(degree)
+    closed = bool(closed)
+    if degree < 1 or degree > 5:
+        return {"ok": False, "error": "Spline degree must be between 1 and 5"}
+    if not isinstance(points, (list, tuple)) or len(points) < (degree + 1):
+        return {"ok": False, "error": f"Studio Spline (degree {degree}) requires at least {degree + 1} points"}
+
+    parsed_points = []
+    has_3d_points = False
+    for idx, p in enumerate(points):
+        if isinstance(p, dict):
+            p_clean = {str(k).lower(): v for k, v in p.items()}
+            if "x" not in p_clean or "y" not in p_clean:
+                return {"ok": False, "error": f"point {idx} dict must contain 'x' and 'y' keys"}
+            try:
+                x_val = _eval_val(p_clean["x"])
+                y_val = _eval_val(p_clean["y"])
+                z_val = _eval_val(p_clean["z"]) if "z" in p_clean else None
+            except Exception as exc:
+                return {"ok": False, "error": f"point {idx} contains non-numeric coordinate: {exc}"}
+            if z_val is not None:
+                has_3d_points = True
+                parsed_points.append([x_val, y_val, z_val])
+            else:
+                parsed_points.append([x_val, y_val])
+        elif isinstance(p, (list, tuple)):
+            if len(p) not in (2, 3):
+                return {"ok": False, "error": f"point {idx} must have 2 or 3 coordinates, got {len(p)}"}
+            try:
+                coords = [_eval_val(val) for val in p]
+            except Exception as exc:
+                return {"ok": False, "error": f"point {idx} contains non-numeric coordinate: {exc}"}
+            if len(coords) == 3:
+                has_3d_points = True
+            parsed_points.append(coords)
+        else:
+            return {"ok": False, "error": f"point {idx} must be a list/tuple or dict with x/y keys"}
+
+    if plane != "active":
+        return {"ok": False, "error": f"Unsupported plane '{plane}' — plane must be 'active'"}
+
+    part = _ensure_work_part()
+    studio_points = []
+    for p in parsed_points:
+        if len(p) == 3:
+            pt3d = NXOpen.Point3d(p[0], p[1], p[2])
+        else:
+            pt3d = _point_on_active_plane(p[0], p[1])
+        studio_points.append(part.Points.CreatePoint(pt3d))
+
+    builder = part.Features.CreateStudioSplineBuilderEx(NXOpen.Features.Feature.Null)
+    try:
+        builder.Degree = degree
+        builder.IsPeriodic = closed
+
+        for pt in studio_points:
+            gcd = builder.ConstraintManager.CreateGeometricConstraintData()
+            gcd.Point = pt
+            builder.ConstraintManager.Append(gcd)
+
+        feature = builder.CommitFeature()
+        _remember_feature(feature)
+        spline_curve = feature.GetEntities()[0]
+    finally:
+        builder.Destroy()
+
+    active_sketch = _state.get("active_sketch")
+    if active_sketch is not None and not has_3d_points and hasattr(active_sketch, "AddGeometry"):
+        try:
+            active_sketch.AddGeometry(spline_curve, NXOpen.Sketch.ConstraintClass.Geometrical)
+        except Exception:
+            try:
+                active_sketch.AddGeometry(spline_curve)
+            except Exception:
+                pass
+
+    _state["last_curves"] = [spline_curve]
+    _state.setdefault("curve_history", []).append(spline_curve)
+    _state.setdefault("curve_metadata", {})[str(spline_curve.Tag)] = {
+        "points": parsed_points,
+        "degree": degree,
+        "closed": closed,
+        "plane": plane,
+    }
+
+    fit_view()
+    return {
+        "ok": True,
+        "message": f"Studio spline through {len(parsed_points)} points (degree {degree}, closed={closed})",
+        "curve_count": 1,
+    }
+
+
+def _resolve_single_curve(reference, require_spline_metadata=False):
+    """
+    Resolve a curve reference ('last', 'previous', Tag integer, or index) to a single curve object.
+    When require_spline_metadata is True, filters history for curves present in _state['curve_metadata'].
+    """
+    history = list(_state.get("curve_history", []))
+
+    if require_spline_metadata:
+        metadata_map = _state.get("curve_metadata", {})
+        valid = [c for c in history if str(getattr(c, "Tag", "")) in metadata_map]
+        if valid:
+            history = valid
+
+    if not history:
+        last_curves = _state.get("last_curves", [])
+        if require_spline_metadata:
+            metadata_map = _state.get("curve_metadata", {})
+            last_curves = [c for c in last_curves if str(getattr(c, "Tag", "")) in metadata_map]
+        if len(last_curves) == 1:
+            return last_curves[0]
+
+    if not history:
+        raise SelectionError("No curve available in session history")
+
+    ref_str = str(reference).strip().lower()
+    if ref_str == "last":
+        return history[-1]
+    elif ref_str in ("previous", "prev"):
+        if len(history) >= 2:
+            return history[-2]
+        return history[0]
+
+    try:
+        tag_val = int(ref_str)
+        for c in history:
+            if getattr(c, "Tag", None) == tag_val:
+                return c
+    except ValueError:
+        pass
+
+    raise SelectionError(f"Curve reference '{reference}' did not resolve to a valid curve")
+
+
+def offset_curve(curve_reference="last", start_width=5.0, end_width=7.0, side="auto"):
+    start_width = float(start_width)
+    end_width = float(end_width)
+
+    source_curve = _resolve_single_curve(curve_reference, require_spline_metadata=True)
+    metadata = _state.get("curve_metadata", {}).get(str(source_curve.Tag))
+    if not metadata:
+        raise SelectionError("Source curve metadata not found — offset_curve requires a draw_spline curve")
+
+    pts = metadata["points"]
+    degree = metadata.get("degree", 3)
+    n_pts = len(pts)
+
+    offset_sign = -1.0 if str(side).strip().lower() == "right" else 1.0
+
+    offset_points = []
+    for i, p in enumerate(pts):
+        t = i / max(n_pts - 1, 1)
+        w = start_width + t * (end_width - start_width)
+
+        if i == 0:
+            dx = pts[1][0] - pts[0][0]
+            dy = pts[1][1] - pts[0][1]
+        elif i == n_pts - 1:
+            dx = pts[-1][0] - pts[-2][0]
+            dy = pts[-1][1] - pts[-2][1]
+        else:
+            dx = pts[i + 1][0] - pts[i - 1][0]
+            dy = pts[i + 1][1] - pts[i - 1][1]
+
+        length = math.hypot(dx, dy)
+        if length < 1e-6:
+            nx_val, ny_val = 0.0, 1.0
+        else:
+            nx_val = -dy / length
+            ny_val = dx / length
+
+        px = p[0] + offset_sign * w * nx_val
+        py = p[1] + offset_sign * w * ny_val
+        if len(p) == 3:
+            offset_points.append([px, py, p[2]])
+        else:
+            offset_points.append([px, py])
+
+    res = draw_spline(points=offset_points, degree=degree, closed=False, plane=metadata.get("plane", "active"))
+    if not res.get("ok"):
+        return res
+
+    offset_spline = _state["last_curves"][0]
+    return {
+        "ok": True,
+        "message": f"Variable offset spline {start_width}mm to {end_width}mm on {side} side",
+        "curve_count": 1,
+    }
+
+
+def close_curve_region(curve1="last", curve2="previous", method="tangent_lines"):
+    c1 = _resolve_single_curve(curve1, require_spline_metadata=True)
+    c2 = _resolve_single_curve(curve2, require_spline_metadata=True)
+
+    part = _ensure_work_part()
+
+    m1 = _state.get("curve_metadata", {}).get(str(c1.Tag), {})
+    m2 = _state.get("curve_metadata", {}).get(str(c2.Tag), {})
+    pts1 = m1.get("points", [])
+    pts2 = m2.get("points", [])
+
+    if len(pts1) >= 2 and len(pts2) >= 2:
+        p1_start = _point_on_active_plane(pts1[0][0], pts1[0][1])
+        p1_end = _point_on_active_plane(pts1[-1][0], pts1[-1][1])
+        p2_start = _point_on_active_plane(pts2[0][0], pts2[0][1])
+        p2_end = _point_on_active_plane(pts2[-1][0], pts2[-1][1])
+    else:
+        p1_start = c1.StartPoint
+        p1_end = c1.EndPoint
+        p2_start = c2.StartPoint
+        p2_end = c2.EndPoint
+
+    start_connector = part.Curves.CreateLine(p1_start, p2_start)
+    end_connector = part.Curves.CreateLine(p1_end, p2_end)
+
+    active_sketch = _state.get("active_sketch")
+    if active_sketch is not None and hasattr(active_sketch, "AddGeometry"):
+        for conn in (start_connector, end_connector):
+            try:
+                active_sketch.AddGeometry(conn, NXOpen.Sketch.ConstraintClass.Geometrical)
+            except Exception:
+                try:
+                    active_sketch.AddGeometry(conn)
+                except Exception:
+                    pass
+
+    _state["last_curves"] = [c1, end_connector, c2, start_connector]
+    _state.setdefault("curve_history", []).extend([end_connector, start_connector])
+    fit_view()
+    return {
+        "ok": True,
+        "message": f"Closed region from two curves using {method}",
+        "curve_count": 4,
     }
 
 
@@ -2663,7 +2984,7 @@ def revolve_cut(axis="auto", angle_deg=360.0, target="last"):
     return result
 
 
-def extrude_cut(distance, start=0.0, target="last", direction="auto"):
+def extrude_cut(distance, start=0.0, target="last", direction="auto", reverse_direction=False):
     """Extrude active sketch profile to CUT/remove material from target body.
 
     Uses CreateExtrudeBuilder with BooleanType.Subtract.
@@ -2701,17 +3022,40 @@ def extrude_cut(distance, start=0.0, target="last", direction="auto"):
         builder.Section = section
 
         origin = NXOpen.Point3d(0.0, 0.0, 0.0)
-        nx_dir = _create_direction(work_part, origin, _direction_vector(direction))
+        dir_vec = _direction_vector("-Z") if direction in ("auto", "-Z", "-auto") else _direction_vector(direction)
+        if reverse_direction:
+            dir_vec = NXOpen.Vector3d(-dir_vec.X, -dir_vec.Y, -dir_vec.Z)
+
+        nx_dir = _create_direction(work_part, origin, dir_vec)
         builder.Direction = nx_dir
         builder.Limits.StartExtend.Value.RightHandSide = start_name
         builder.Limits.EndExtend.Value.RightHandSide = dist_name
 
         target_set = False
-        try:
-            builder.BooleanOperation.SetTarget(target_body)
-            target_set = True
-        except Exception as e:
-            sys.stderr.write(f"extrude_cut SetTarget failed, changing to Create for manual subtraction: {e}\n")
+        if target_body is not None:
+            for bool_attr in ("BooleanOperation", "BooleanOption"):
+                if hasattr(builder, bool_attr):
+                    b_opt = getattr(builder, bool_attr)
+                    try:
+                        b_opt.Type = NXOpen.Features.Feature.BooleanType.Subtract
+                    except Exception:
+                        pass
+                    for target_method in ("SetTarget", "SetTargetBody", "SetTargetBodies"):
+                        if hasattr(b_opt, target_method):
+                            try:
+                                m = getattr(b_opt, target_method)
+                                if target_method == "SetTargetBodies":
+                                    m([target_body])
+                                else:
+                                    m(target_body)
+                                target_set = True
+                                break
+                            except Exception as e:
+                                sys.stderr.write(f"Target method {target_method} failed: {e}\n")
+                    if target_set:
+                        break
+
+        if not target_set:
             try:
                 builder.BooleanOperation.Type = NXOpen.Features.Feature.BooleanType.Create
             except Exception:
@@ -2724,6 +3068,20 @@ def extrude_cut(distance, start=0.0, target="last", direction="auto"):
 
     _state["last_curves"] = []
     fit_view()
+
+    if not target_set and target_body is not None:
+        created_body = _state.get("last_body")
+        if created_body is not None and created_body != target_body:
+            builder = work_part.Features.CreateBooleanBuilder(NXOpen.Features.BooleanFeature.Null)
+            try:
+                builder.Operation = NXOpen.Features.Feature.BooleanType.Subtract
+                _set_boolean_inputs(builder, work_part, target_body, [created_body])
+                feature = builder.CommitFeature()
+                _remember_feature(feature)
+            finally:
+                builder.Destroy()
+
+    return {"ok": True, "message": f"Extrude-cut {distance}mm from '{_body_name(target_body)}'"}
 
     if not target_set:
         cut_body = _state.get("last_body")
@@ -4084,6 +4442,28 @@ def get_diagnostics():
         }
     except Exception as e:
         return {"ok": False, "error": f"Diagnostics failed: {e}"}
+
+
+def inspect_part():
+    work_part = _ensure_work_part()
+    bodies = _iter_bodies(work_part)
+    features = _iter_features(work_part)
+    body_info = []
+    for b in bodies:
+        faces = getattr(b, "GetFaces", lambda: [])()
+        edges = getattr(b, "GetEdges", lambda: [])()
+        body_info.append({
+            "name": _body_name(b),
+            "face_count": len(faces) if callable(faces) else len(faces or []),
+            "edge_count": len(edges) if callable(edges) else len(edges or []),
+        })
+    return {
+        "ok": True,
+        "part_name": getattr(work_part, "FullPath", "Active Part"),
+        "body_count": len(bodies),
+        "feature_count": len(features),
+        "bodies": body_info,
+    }
 
 
 def handle_line(line):
