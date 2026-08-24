@@ -12,13 +12,13 @@ from nx_mcp.tools._common import _bridge_result, _use_mock_nxopen
 
 @mcp_tool(
     "create_cube",
-    "Creates a cube solid body feature in the active part using an NXOpen BlockFeatureBuilder.",
+    "Create a cube with side length (required) mm from origin x y z",
 )
 def create_cube(size: float, x: float = 0.0, y: float = 0.0, z: float = 0.0, centered: bool = False):
-    """Creates a cube solid body feature in the active part using an NXOpen BlockFeatureBuilder.
+    """Creates a cube solid body feature in the active part.
 
     Args:
-        size (float): The length of the cube edges in millimeters.
+        size (float): The length of the cube edges in millimeters (required).
         x (float): The X coordinate of the cube's corner (or center if centered=True) in millimeters.
         y (float): The Y coordinate of the cube's corner (or center if centered=True) in millimeters.
         z (float): The Z coordinate of the cube's corner (or center if centered=True) in millimeters.
@@ -60,7 +60,7 @@ def create_cube(size: float, x: float = 0.0, y: float = 0.0, z: float = 0.0, cen
 
 @mcp_tool(
     "create_cuboid",
-    "Creates a cuboid solid body feature in the active part using an NXOpen ExtrudeBuilder.",
+    "Create a cuboid with length width height (all required) mm from origin x y z",
 )
 def create_cuboid(
     length: float,
@@ -71,12 +71,12 @@ def create_cuboid(
     z: float = 0.0,
     centered: bool = False,
 ):
-    """Creates a cuboid solid body feature in the active part using an NXOpen ExtrudeBuilder.
+    """Creates a cuboid solid body feature in the active part.
 
     Args:
-        length (float): The length of the cuboid along the X-axis in millimeters.
-        width (float): The width of the cuboid along the Y-axis in millimeters.
-        height (float): The height of the cuboid along the Z-axis in millimeters.
+        length (float): The length of the cuboid along the X-axis in millimeters (required).
+        width (float): The width of the cuboid along the Y-axis in millimeters (required).
+        height (float): The height of the cuboid along the Z-axis in millimeters (required).
         x (float): The X coordinate of the origin point in millimeters.
         y (float): The Y coordinate of the origin point in millimeters.
         z (float): The Z coordinate of the origin point in millimeters.
@@ -151,7 +151,7 @@ def create_two_cuboids():
 
 @mcp_tool(
     "create_cylinder",
-    "Create a cylinder with radius height mm from origin x y z along direction X Y or Z",
+    "Create a cylinder with radius height (both required) mm from origin x y z along direction X Y or Z",
 )
 def create_cylinder(
     radius: float,
