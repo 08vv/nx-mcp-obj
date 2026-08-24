@@ -31,11 +31,99 @@ def test_export_step():
 def test_export_stl():
     assert isinstance(file_ops.export_stl("out.stl"), ToolResult)
 
-def test_create_sketch():
-    assert isinstance(sketch.create_sketch("XY"), ToolResult)
+def test_create_cube_centered():
+    assert isinstance(modeling.create_cube(size=20.0, centered=True), ToolResult)
+
+
+def test_curve_group_resolution():
+    from unittest.mock import MagicMock
+    import sys
+
+    mock_nxopen = MagicMock()
+    mock_uf_session = MagicMock()
+    mock_nxopen.UF.UFSession.GetUFSession.return_value = mock_uf_session
+    mock_nxopen.Session.GetSession.return_value = MagicMock()
+
+    orig_nxopen = sys.modules.get("NXOpen")
+    orig_nxopen_uf = sys.modules.get("NXOpen.UF")
+
+    sys.modules["NXOpen"] = mock_nxopen
+    sys.modules["NXOpen.UF"] = mock_nxopen.UF
+
+    try:
+        from nx_mcp.bridge import nx_bridge
+
+        # 1. Single-curve profile test (Amendment 3: backward compatibility)
+        nx_bridge._state.clear()
+        nx_bridge._state["curve_history"] = []
+        nx_bridge.create_sketch("XY")
+
+        line1 = MagicMock()
+        line1.Tag = 101
+        nx_bridge._state.setdefault("curve_history", []).append(line1)
+
+        single_resolved = nx_bridge._resolve_curve_group("last")
+        assert single_resolved == [line1]
+        assert nx_bridge._resolve_single_curve("last") == line1
+
+        # 2. Multi-curve profile test (4 rectangle lines)
+        nx_bridge.create_sketch("XY")
+        l1, l2, l3, l4 = MagicMock(), MagicMock(), MagicMock(), MagicMock()
+        l1.Tag, l2.Tag, l3.Tag, l4.Tag = 201, 202, 203, 204
+        nx_bridge._state["curve_history"].extend([l1, l2, l3, l4])
+
+        multi_resolved = nx_bridge._resolve_curve_group("last")
+        assert multi_resolved == [l1, l2, l3, l4]
+
+    finally:
+        if orig_nxopen:
+            sys.modules["NXOpen"] = orig_nxopen
+        else:
+            sys.modules.pop("NXOpen", None)
+        if orig_nxopen_uf:
+            sys.modules["NXOpen.UF"] = orig_nxopen_uf
+        else:
+            sys.modules.pop("NXOpen.UF", None)
+
 
 def test_draw_line():
     assert isinstance(sketch.draw_line(0,0,50,0), ToolResult)
+
+
+def test_curve_tools_registered_with_expected_schemas():
+    tools = {tool["name"]: tool for tool in ToolRegistry.list_tools()}
+    assert {"draw_spline", "offset_curve", "close_curve_region"}.issubset(tools)
+
+    spline_schema = tools["draw_spline"]["inputSchema"]
+    assert spline_schema["required"] == ["points"]
+    assert spline_schema["properties"]["points"]["type"] == "array"
+    assert spline_schema["properties"]["degree"]["default"] == 3
+    assert spline_schema["properties"]["closed"]["default"] is False
+
+    offset_schema = tools["offset_curve"]["inputSchema"]
+    assert set(offset_schema["required"]) == {"start_width", "end_width"}
+    assert offset_schema["properties"]["curve_reference"]["default"] == "last"
+
+    close_schema = tools["close_curve_region"]["inputSchema"]
+    assert close_schema["required"] == ["curve2"]
+    assert close_schema["properties"]["curve1"]["default"] == "last"
+    assert close_schema["properties"]["method"]["enum"] == ["tangent_lines", "straight_lines"]
+
+
+def test_curve_tools_mock_mode():
+    assert isinstance(
+        sketch.draw_spline([[0, 0], [5, 3], [10, 0], [15, 2]]), ToolResult
+    )
+    # Test object-style points
+    assert isinstance(
+        sketch.draw_spline([{"x": 0, "y": 0}, {"x": 5, "y": 3}, {"x": 10, "y": 0}, {"x": 15, "y": 2}]), ToolResult
+    )
+    # Test 3D object-style points
+    assert isinstance(
+        sketch.draw_spline([{"x": 0, "y": 0, "z": 0}, {"x": 5, "y": 3, "z": 1}, {"x": 10, "y": 0, "z": 2}, {"x": 15, "y": 2, "z": 3}]), ToolResult
+    )
+    assert isinstance(sketch.offset_curve(5.0, 7.0), ToolResult)
+    assert isinstance(sketch.close_curve_region(curve2="previous"), ToolResult)
 
 def test_draw_rectangle():
     r = sketch.draw_rectangle(0,0,100,50)
@@ -224,7 +312,7 @@ def test_new_modeling_tools_route_to_bridge(monkeypatch):
 
     monkeypatch.setattr(modeling.runner, "call_nx", fake_call_nx)
 
-    assert modeling.create_real_sketch("XZ").message == "bridge create_real_sketch"
+    assert modeling.create_real_sketch("XZ", z_offset=10.0, origin_x=5.0, origin_y=2.0, rotate_z_deg=45.0).message == "bridge create_real_sketch"
     assert modeling.extrude_from_sketch(15.0, "sketch_1", 2.0, "Y").message == "bridge extrude_from_sketch"
     assert modeling.add_hole_nx(1.0, 2.0, 3.0, 8.0, 12.0, "body_1", "-Z", "simple").message == "bridge add_hole"
     assert modeling.create_rib(6.0, "X", "body_2", True).message == "bridge create_rib"
@@ -236,7 +324,7 @@ def test_new_modeling_tools_route_to_bridge(monkeypatch):
     assert modeling.mirror_body_feature("feat_2", "YZ").message == "bridge mirror_feature"
 
     assert calls == [
-        ("create_real_sketch", {"plane": "XZ"}),
+        ("create_real_sketch", {"plane": "XZ", "z_offset": 10.0, "origin_x": 5.0, "origin_y": 2.0, "rotate_z_deg": 45.0}),
         ("extrude_from_sketch", {"sketch_name": "sketch_1", "distance": 15.0, "start": 2.0, "direction": "Y"}),
         ("add_hole", {"x": 1.0, "y": 2.0, "z": 3.0, "diameter": 8.0, "depth": 12.0, "target": "body_1", "direction": "-Z", "placement_face": "top"}),
         ("create_rib", {"thickness": 6.0, "direction": "X", "body": "body_2", "flip": True}),
@@ -258,3 +346,65 @@ def test_new_modeling_validation():
     assert isinstance(modeling.edge_blend(-1.0), ToolError)
     assert isinstance(modeling.chamfer(-0.5), ToolError)
     assert isinstance(modeling.extrude_cut(-10.0), ToolError)
+
+def test_create_cube_centered():
+    # Corner-based placement (default)
+    r1 = modeling.create_cube(size=10.0, x=0.0, y=0.0, z=0.0, centered=False)
+    assert isinstance(r1, ToolResult)
+    assert "at (0.0,0.0,0.0)" in r1.message
+
+    # Centered placement
+    r2 = modeling.create_cube(size=10.0, x=0.0, y=0.0, z=0.0, centered=True)
+    assert isinstance(r2, ToolResult)
+    assert "at (-5.0,-5.0,-5.0)" in r2.message
+
+
+def test_curve_group_resolution():
+    from unittest.mock import MagicMock
+    import sys
+
+    mock_nxopen = MagicMock()
+    mock_uf_session = MagicMock()
+    mock_nxopen.UF.UFSession.GetUFSession.return_value = mock_uf_session
+    mock_nxopen.Session.GetSession.return_value = MagicMock()
+
+    orig_nxopen = sys.modules.get("NXOpen")
+    orig_nxopen_uf = sys.modules.get("NXOpen.UF")
+
+    sys.modules["NXOpen"] = mock_nxopen
+    sys.modules["NXOpen.UF"] = mock_nxopen.UF
+
+    try:
+        from nx_mcp.bridge import nx_bridge
+
+        # 1. Single-curve profile test (Amendment 3: backward compatibility)
+        nx_bridge._state.clear()
+        nx_bridge._state["curve_history"] = []
+        nx_bridge.create_sketch("XY")
+
+        line1 = MagicMock()
+        line1.Tag = 101
+        nx_bridge._state.setdefault("curve_history", []).append(line1)
+
+        single_resolved = nx_bridge._resolve_curve_group("last")
+        assert single_resolved == [line1]
+        assert nx_bridge._resolve_single_curve("last") == line1
+
+        # 2. Multi-curve profile test (4 rectangle lines)
+        nx_bridge.create_sketch("XY")
+        l1, l2, l3, l4 = MagicMock(), MagicMock(), MagicMock(), MagicMock()
+        l1.Tag, l2.Tag, l3.Tag, l4.Tag = 201, 202, 203, 204
+        nx_bridge._state["curve_history"].extend([l1, l2, l3, l4])
+
+        multi_resolved = nx_bridge._resolve_curve_group("last")
+        assert multi_resolved == [l1, l2, l3, l4]
+
+    finally:
+        if orig_nxopen:
+            sys.modules["NXOpen"] = orig_nxopen
+        else:
+            sys.modules.pop("NXOpen", None)
+        if orig_nxopen_uf:
+            sys.modules["NXOpen.UF"] = orig_nxopen_uf
+        else:
+            sys.modules.pop("NXOpen.UF", None)

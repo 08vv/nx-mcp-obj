@@ -891,6 +891,7 @@ def create_sketch(plane="XY"):
     ACTIVE_SKETCH_PLANE = plane
     _state["last_curves"] = []
     _state["active_sketch"] = None
+    _state["profile_start_index"] = len(_state.get("curve_history", []))
     return {"ok": True, "message": f"Sketch created on {plane} plane"}
 
 
@@ -1226,6 +1227,42 @@ def _resolve_single_curve(reference, require_spline_metadata=False):
         pass
 
     raise SelectionError(f"Curve reference '{reference}' did not resolve to a valid curve")
+
+
+def _resolve_curve_group(reference="last_profile"):
+    """
+    Resolve curve reference to a list of curves added in the active sketch profile.
+    If reference is 'last', 'last_profile', or 'profile', returns all curves added
+    since the most recent create_sketch() call.
+    If exactly 1 curve exists, or if a specific single curve reference/tag is requested,
+    returns a list containing that curve.
+    """
+    ref_str = str(reference or "last_profile").strip().lower()
+    history = list(_state.get("curve_history", []))
+
+    if ref_str in {"last", "last_profile", "profile", "all"}:
+        start_idx = _state.get("profile_start_index", 0)
+        profile_curves = history[start_idx:]
+        if not profile_curves:
+            profile_curves = list(_state.get("last_curves", []))
+        if profile_curves:
+            return profile_curves
+
+    if not history:
+        last_curves = _state.get("last_curves", [])
+        if last_curves:
+            return last_curves
+        raise SelectionError("No curve available in session history")
+
+    try:
+        single = _resolve_single_curve(reference)
+        return [single]
+    except Exception:
+        start_idx = _state.get("profile_start_index", 0)
+        profile_curves = history[start_idx:]
+        if profile_curves:
+            return profile_curves
+        return history
 
 
 def offset_curve(curve_reference="last", start_width=5.0, end_width=7.0, side="auto"):
