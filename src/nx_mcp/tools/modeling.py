@@ -10,8 +10,11 @@ from nx_mcp.tools._common import _bridge_result, _use_mock_nxopen
 
 
 
-@mcp_tool("create_cube", "Create a cube with side length mm from origin x y z")
-def create_cube(size: float = 10.0, x: float = 0.0, y: float = 0.0, z: float = 0.0, centered: bool = False):
+@mcp_tool(
+    "create_cube",
+    "Creates a cube solid body feature in the active part using an NXOpen BlockFeatureBuilder.",
+)
+def create_cube(size: float, x: float = 0.0, y: float = 0.0, z: float = 0.0, centered: bool = False):
     """Creates a cube solid body feature in the active part using an NXOpen BlockFeatureBuilder.
 
     Args:
@@ -34,7 +37,10 @@ def create_cube(size: float = 10.0, x: float = 0.0, y: float = 0.0, z: float = 0
             return ToolError("Cube size must be positive")
         if not _use_mock_nxopen():
             return _bridge_result(
-                runner.call_nx("create_cube", {"size": size, "x": x, "y": y, "z": z, "centered": centered})
+                runner.call_nx(
+                    "create_cube",
+                    {"size": size, "x": x, "y": y, "z": z, "centered": centered},
+                )
             )
 
         # Mock implementation centering adjustment
@@ -53,12 +59,13 @@ def create_cube(size: float = 10.0, x: float = 0.0, y: float = 0.0, z: float = 0
 
 
 @mcp_tool(
-    "create_cuboid", "Create a cuboid with length width height mm from origin x y z"
+    "create_cuboid",
+    "Creates a cuboid solid body feature in the active part using an NXOpen ExtrudeBuilder.",
 )
 def create_cuboid(
-    length: float = 40.0,
-    width: float = 25.0,
-    height: float = 20.0,
+    length: float,
+    width: float,
+    height: float,
     x: float = 0.0,
     y: float = 0.0,
     z: float = 0.0,
@@ -147,8 +154,8 @@ def create_two_cuboids():
     "Create a cylinder with radius height mm from origin x y z along direction X Y or Z",
 )
 def create_cylinder(
-    radius: float = 10.0,
-    height: float = 20.0,
+    radius: float,
+    height: float,
     x: float = 0.0,
     y: float = 0.0,
     z: float = 0.0,

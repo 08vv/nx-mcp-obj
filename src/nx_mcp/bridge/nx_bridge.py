@@ -1836,7 +1836,7 @@ def extrude(distance, start=0, direction="auto"):
     return {"ok": True, "message": f"Extruded {float(distance)}mm"}
 
 
-def create_cuboid(length=40.0, width=25.0, height=20.0, x=0.0, y=0.0, z=0.0):
+def create_cuboid(length, width, height, x=0.0, y=0.0, z=0.0):
     length = float(length)
     width = float(width)
     height = float(height)
@@ -1894,7 +1894,7 @@ def create_two_cuboids():
     }
 
 
-def create_cube(size=10.0, x=0.0, y=0.0, z=0.0):
+def create_cube(size, x=0.0, y=0.0, z=0.0):
     size = float(size)
     x = float(x)
     y = float(y)
@@ -1927,7 +1927,7 @@ def create_cube(size=10.0, x=0.0, y=0.0, z=0.0):
     return {"ok": True, "message": f"Cube {size}mm at ({x},{y},{z})"}
 
 
-def create_cylinder(radius=10.0, height=20.0, x=0.0, y=0.0, z=0.0, direction="Z"):
+def create_cylinder(radius, height, x=0.0, y=0.0, z=0.0, direction="Z"):
     radius = float(radius)
     height = float(height)
     x = float(x)

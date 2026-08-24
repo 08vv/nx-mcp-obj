@@ -408,3 +408,13 @@ def test_curve_group_resolution():
             sys.modules["NXOpen.UF"] = orig_nxopen_uf
         else:
             sys.modules.pop("NXOpen.UF", None)
+
+
+def test_primitive_creation_requires_dimensions():
+    import pytest
+    with pytest.raises(TypeError):
+        modeling.create_cylinder(x=0.0, y=0.0, z=0.0)
+    with pytest.raises(TypeError):
+        modeling.create_cube(x=0.0, y=0.0, z=0.0)
+    with pytest.raises(TypeError):
+        modeling.create_cuboid(x=0.0, y=0.0, z=0.0)
