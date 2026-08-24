@@ -844,12 +844,48 @@ def create_part(filename):
 
 def open_part(filepath):
     global _counters_seeded
+    import os
+    target_abs = os.path.abspath(filepath).lower()
+
+    # Check if the part is already open in the session
+    existing_part = None
     try:
-        # OpenDisplay opens the part AND makes it the active display/work part
-        SESSION.Parts.OpenDisplay(filepath)
+        for part in SESSION.Parts:
+            try:
+                if os.path.abspath(part.FullPath).lower() == target_abs:
+                    existing_part = part
+                    break
+            except Exception:
+                pass
     except Exception:
-        # Fallback for NX versions where OpenDisplay signature differs
-        SESSION.Parts.Open(filepath)
+        pass
+
+    if existing_part is not None:
+        try:
+            SESSION.Parts.SetWork(existing_part)
+        except Exception:
+            pass
+        try:
+            existing_part.Display()
+        except Exception:
+            pass
+        _expression_counters.clear()
+        _instance_counters.clear()
+        _counters_seeded = False
+        _seed_counters_from_part(existing_part)
+        _counters_seeded = True
+        fit_view()
+        _update_result_files(target_abs)
+        return {"ok": True, "message": f"Part already open, activated: {filepath}", "filepath": target_abs}
+
+    try:
+        try:
+            SESSION.Parts.OpenDisplay(filepath)
+        except Exception:
+            SESSION.Parts.Open(filepath)
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to open part '{filepath}': {e}"}
+
     # Reset and re-seed counters for the opened part
     _expression_counters.clear()
     _instance_counters.clear()
@@ -859,7 +895,6 @@ def open_part(filepath):
         _seed_counters_from_part(work_part)
         _counters_seeded = True
     fit_view()
-    import os
     actual_path = os.path.abspath(work_part.FullPath if work_part else filepath)
     _update_result_files(actual_path)
     return {"ok": True, "message": f"Opened and displayed: {filepath}", "filepath": actual_path}
@@ -4486,6 +4521,41 @@ def get_diagnostics():
         }
     except Exception as e:
         return {"ok": False, "error": f"Diagnostics failed: {e}"}
+
+
+def exec_python_code(code, desc="Dynamic NXOpen script"):
+    """Executes a complete, self-contained Python script inside the active NX session.
+    
+    The script has access to these pre-injected variables:
+    - NXOpen (Main API)
+    - SESSION (NXOpen.Session)
+    - UF_SESSION (NXOpen.UF)
+    - work_part (Active NXOpen.Part)
+    - math (Python math library)
+    - Point3d, Vector3d
+    """
+    work_part = _ensure_work_part()
+    local_vars = {
+        "NXOpen": NXOpen,
+        "SESSION": SESSION,
+        "UF_SESSION": UF_SESSION,
+        "work_part": work_part,
+        "math": math,
+        "Point3d": getattr(NXOpen, "Point3d", None),
+        "Vector3d": getattr(NXOpen, "Vector3d", None),
+        "state": _state,
+        "resolve_edges": _resolve_edges,
+        "resolve_body": _resolve_body,
+        "resolve_feature": _resolve_feature,
+        "remember_feature": _remember_feature,
+    }
+    
+    try:
+        exec(code, globals(), local_vars)
+        _seed_counters_from_part(work_part)
+        return {"ok": True, "message": f"Successfully executed journal script: {desc}"}
+    except Exception as e:
+        raise RuntimeError(f"Script execution failed: {e}")
 
 
 def inspect_part():
