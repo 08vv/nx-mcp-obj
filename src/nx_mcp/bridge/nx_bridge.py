@@ -4458,6 +4458,48 @@ def dispatch(command):
         return {"ok": False, "error": f"Failed to execute {tool}: {e}"}
 
 
+def create_expression(name, value):
+    """Create a new named expression with a value."""
+    work_part = _ensure_work_part()
+    try:
+        # Check if it already exists
+        try:
+            expr = work_part.Expressions.FindObject(name)
+            expr.RightHandSide = str(value)
+            msg = f"Expression '{name}' updated to {value}"
+        except Exception:
+            expr = work_part.Expressions.CreateExpression("Number", f"{name} = {value}")
+            msg = f"Expression '{name}' created with value {value}"
+            
+        session = NXOpen.Session.GetSession()
+        undo_mark = session.SetUndoMark(NXOpen.Session.MarkVisibility.Invisible, "Create Expression")
+        try:
+            session.UpdateManager.DoUpdate(undo_mark)
+        except Exception as e:
+            return {"ok": False, "error": f"Failed to update model after expression change: {e}"}
+            
+        return {"ok": True, "message": msg}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to create/edit expression '{name}': {e}"}
+
+
+def list_expressions():
+    """List all expressions in the active part."""
+    try:
+        work_part = SESSION.Parts.Work
+        if work_part is None:
+            return {"ok": True, "expressions": {}, "message": "Expressions: none"}
+            
+        exprs = {}
+        for expr in work_part.Expressions:
+            exprs[expr.Name] = expr.RightHandSide
+            
+        msg = "Expressions: " + (", ".join(f"{k}={v}" for k, v in exprs.items()) if exprs else "none")
+        return {"ok": True, "expressions": exprs, "message": msg}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to list expressions: {e}"}
+
+
 def edit_expression(name, value):
     work_part = _ensure_work_part()
     try:

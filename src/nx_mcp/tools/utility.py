@@ -249,7 +249,7 @@ def create_expression(name: str, value: float):
         if not _use_mock_nxopen():
             return _bridge_result(
                 runner.call_nx(
-                    "create_named_expression_tool", {"name": name, "value": value}
+                    "create_expression", {"name": name, "value": value}
                 )
             )
         return ToolResult(f"Expression {name} = {value} created")
