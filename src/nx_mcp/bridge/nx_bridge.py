@@ -4803,6 +4803,7 @@ def create_expression(name, value):
     """Create a new named expression with a value."""
     work_part = _ensure_work_part()
     try:
+        name = str(name).strip()
         # Check if it already exists
         try:
             expr = work_part.Expressions.FindObject(name)
@@ -4811,30 +4812,37 @@ def create_expression(name, value):
         except Exception:
             expr = work_part.Expressions.CreateExpression("Number", f"{name} = {value}")
             msg = f"Expression '{name}' created with value {value}"
-            
+
         session = NXOpen.Session.GetSession()
         undo_mark = session.SetUndoMark(NXOpen.Session.MarkVisibility.Invisible, "Create Expression")
         try:
             session.UpdateManager.DoUpdate(undo_mark)
         except Exception as e:
             return {"ok": False, "error": f"Failed to update model after expression change: {e}"}
-            
+
+        _state.setdefault("user_expressions", set()).add(name)
         return {"ok": True, "message": msg}
     except Exception as e:
         return {"ok": False, "error": f"Failed to create/edit expression '{name}': {e}"}
 
 
-def list_expressions():
-    """List all expressions in the active part."""
+def list_expressions(include_internal=False):
+    """List all expressions in the active part, filtering internal parameters (p0, p1...)."""
     try:
-        work_part = SESSION.Parts.Work
-        if work_part is None:
-            return {"ok": True, "expressions": {}, "message": "Expressions: none"}
-            
+        import re
+        work_part = _ensure_work_part()
         exprs = {}
+        user_exprs = _state.get("user_expressions", set())
+
         for expr in work_part.Expressions:
-            exprs[expr.Name] = expr.RightHandSide
-            
+            ename = str(expr.Name)
+            # Internal auto-generated parameters like p0, p1, p2... and EVAL_TEMP
+            is_internal = bool(re.match(r"^p\d+$", ename, re.IGNORECASE) or ename.startswith("EVAL_TEMP"))
+            if not include_internal:
+                if is_internal and ename not in user_exprs:
+                    continue
+            exprs[ename] = expr.RightHandSide
+
         msg = "Expressions: " + (", ".join(f"{k}={v}" for k, v in exprs.items()) if exprs else "none")
         return {"ok": True, "expressions": exprs, "message": msg}
     except Exception as e:
