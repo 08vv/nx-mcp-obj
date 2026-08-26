@@ -4511,18 +4511,36 @@ def export_stl(output_path):
 
 
 def set_view(view_name="ISO"):
-    view_name = str(view_name).upper()
-    valid = {"TOP", "FRONT", "RIGHT", "BACK", "LEFT", "BOTTOM", "ISO"}
-    if view_name not in valid:
-        return {"ok": False, "error": f"Invalid view '{view_name}'"}
+    """Set the work view orientation (TOP, FRONT, RIGHT, BACK, LEFT, BOTTOM, ISO, TRIMETRIC)."""
+    work_part = _ensure_work_part()
+    name = str(view_name or "ISO").strip().upper()
+
+    view_map = {
+        "ISO": NXOpen.View.Canned.Isometric,
+        "ISOMETRIC": NXOpen.View.Canned.Isometric,
+        "TOP": NXOpen.View.Canned.Top,
+        "FRONT": NXOpen.View.Canned.Front,
+        "RIGHT": NXOpen.View.Canned.Right,
+        "BACK": NXOpen.View.Canned.Back,
+        "LEFT": NXOpen.View.Canned.Left,
+        "BOTTOM": NXOpen.View.Canned.Bottom,
+        "TRIMETRIC": NXOpen.View.Canned.Trimetric,
+    }
+    if name not in view_map:
+        return {"ok": False, "error": f"Invalid view '{view_name}'. Choose: {', '.join(view_map.keys())}"}
+
     try:
-        work_part = SESSION.Parts.Work
-        if work_part is None:
-            return {"ok": False, "error": "No work part is open"}
-        work_part.ModelingViews.WorkView.Orient(view_name)
-        return {"ok": True, "message": f"View set to {view_name}"}
+        wv = work_part.ModelingViews.WorkView
+        canned_val = view_map[name]
+        scale_adj = getattr(NXOpen.View, "ScaleAdjustment", None)
+        if scale_adj is not None:
+            wv.Orient(canned_val, scale_adj.Fit)
+        else:
+            wv.Orient(canned_val)
+            wv.Fit()
+        return {"ok": True, "message": f"View set to {name}"}
     except Exception as e:
-        return {"ok": False, "error": f"Failed to set view: {e}"}
+        return {"ok": False, "error": f"Failed to set view to {name}: {e}"}
 
 
 def list_features():
