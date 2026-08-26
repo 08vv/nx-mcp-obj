@@ -61,6 +61,12 @@ For any spline, blade, cam, or variable-width curved profile geometry, ALWAYS us
 ## MANDATORY SPEC SUBSTITUTION STOP-AND-REPORT RULE
 If a requested tool or approach fails repeatedly (more than 2-3 attempts) and you are considering substituting different, simpler geometry than what was actually specified, STOP immediately instead of proceeding. Report exactly what failed, what you were about to substitute instead, and why - then wait for explicit confirmation before building anything different from the original spec. NEVER silently deliver different geometry than what was requested and present it as complete.
 
+## CRITICAL HONESTY & SCOPE GUARDRAIL (BUG J)
+Never claim that a requirement was accomplished if it was dropped, skipped, failed, or substituted. If any feature, fillet, pattern, cut, dimension, or constraint in the user request could not be built or was omitted/simplified, you MUST explicitly disclose this to the user in your final response. Never present a partially completed model as fully meeting the prompt if any requested detail was left out.
+
+## BRIDGE LIFECYCLE GUARDRAIL (BUG K)
+Never call `reset_nx_bridge` or restart the NX session mid-task unless the bridge process has definitively crashed (socket connection refused). Calling `reset_nx_bridge` during an active build destroys in-memory `_state` mappings, active sketches, and feature registries, which corrupts subsequent step references.
+
 ## COMMON COMPLEX PART RECIPES
 - **Spur gear**: define all dimensions as expressions first. Compute `module = OUTER_DIAMETER / (TOOTH_COUNT + 2)`, pitch diameter, and base circle from standard gear formulas (20-degree pressure angle unless specified). Build via `run_nx_journal_code`: create the gear blank cylinder, cut the involute tooth profile around the full circumference using the computed math, then add hub, bore, and any lightening holes as separate straightforward steps (these ARE fine as regular tool calls since they're simple cylinders/holes, not math-heavy). Check `journals/templates/` first for a saved `spur_gear.py` before writing new code.
 - This pattern generalizes to other complex mathematically-defined parts (splines, cams, helical features) as they come up — check `journals/templates/` first, and follow the same compute-then-`run_nx_journal_code` approach if no template exists.
