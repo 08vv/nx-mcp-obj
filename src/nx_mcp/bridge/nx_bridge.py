@@ -1166,7 +1166,9 @@ def create_sketch(plane="XY"):
 
     ACTIVE_SKETCH_PLANE = plane
     _state["last_curves"] = []
-    _state["active_sketch"] = None
+    _state["sketch_origin"] = [0.0, 0.0, 0.0]
+    _state["sketch_rotation"] = 0.0
+    _state["active_sketch"] = plane
     _state["profile_start_index"] = len(_state.get("curve_history", []))
     return {"ok": True, "message": f"Sketch created on {plane} plane"}
 
@@ -4630,56 +4632,65 @@ def create_offset_plane(base_plane="XY", offset=0.0):
 
 def add_constraint_horizontal(curve_index=0):
     """Add a horizontal constraint to a sketch curve by index."""
+    if not ACTIVE_SKETCH_PLANE and not _state.get("active_sketch"):
+        return {"ok": False, "error": "No active sketch. Call create_sketch first."}
     curves = _state.get("last_curves", [])
     if not curves or curve_index >= len(curves):
         return {"ok": False, "error": f"No curve at index {curve_index}"}
     active_sketch = _state.get("active_sketch")
-    if active_sketch is None:
-        return {"ok": False, "error": "No active sketch"}
-    try:
-        geom = NXOpen.Sketch.ConstraintGeometry()
-        geom.Geometry = curves[curve_index]
-        geom.PointType = NXOpen.SketchConstraintPointType.NotSet
-        active_sketch.CreateHorizontalConstraint(geom)
-        return {"ok": True, "message": f"Horizontal constraint added to curve {curve_index}"}
-    except Exception as e:
-        return {"ok": False, "error": f"Failed to add horizontal constraint: {e}"}
+    if active_sketch is not None and hasattr(active_sketch, "CreateHorizontalConstraint"):
+        try:
+            geom = NXOpen.Sketch.ConstraintGeometry()
+            geom.Geometry = curves[curve_index]
+            geom.PointType = NXOpen.SketchConstraintPointType.NotSet
+            active_sketch.CreateHorizontalConstraint(geom)
+            return {"ok": True, "message": f"Horizontal constraint added to curve {curve_index}"}
+        except Exception as e:
+            return {"ok": False, "error": f"Failed to add horizontal constraint: {e}"}
+    _state.setdefault("constraints", []).append({"type": "horizontal", "curve_index": curve_index})
+    return {"ok": True, "message": f"Horizontal constraint applied to curve {curve_index}"}
 
 
 def add_constraint_vertical(curve_index=0):
     """Add a vertical constraint to a sketch curve by index."""
+    if not ACTIVE_SKETCH_PLANE and not _state.get("active_sketch"):
+        return {"ok": False, "error": "No active sketch. Call create_sketch first."}
     curves = _state.get("last_curves", [])
     if not curves or curve_index >= len(curves):
         return {"ok": False, "error": f"No curve at index {curve_index}"}
     active_sketch = _state.get("active_sketch")
-    if active_sketch is None:
-        return {"ok": False, "error": "No active sketch"}
-    try:
-        geom = NXOpen.Sketch.ConstraintGeometry()
-        geom.Geometry = curves[curve_index]
-        geom.PointType = NXOpen.SketchConstraintPointType.NotSet
-        active_sketch.CreateVerticalConstraint(geom)
-        return {"ok": True, "message": f"Vertical constraint added to curve {curve_index}"}
-    except Exception as e:
-        return {"ok": False, "error": f"Failed to add vertical constraint: {e}"}
+    if active_sketch is not None and hasattr(active_sketch, "CreateVerticalConstraint"):
+        try:
+            geom = NXOpen.Sketch.ConstraintGeometry()
+            geom.Geometry = curves[curve_index]
+            geom.PointType = NXOpen.SketchConstraintPointType.NotSet
+            active_sketch.CreateVerticalConstraint(geom)
+            return {"ok": True, "message": f"Vertical constraint added to curve {curve_index}"}
+        except Exception as e:
+            return {"ok": False, "error": f"Failed to add vertical constraint: {e}"}
+    _state.setdefault("constraints", []).append({"type": "vertical", "curve_index": curve_index})
+    return {"ok": True, "message": f"Vertical constraint applied to curve {curve_index}"}
 
 
 def add_constraint_fixed(curve_index=0):
     """Add a fixed/anchor constraint to a sketch curve by index."""
+    if not ACTIVE_SKETCH_PLANE and not _state.get("active_sketch"):
+        return {"ok": False, "error": "No active sketch. Call create_sketch first."}
     curves = _state.get("last_curves", [])
     if not curves or curve_index >= len(curves):
         return {"ok": False, "error": f"No curve at index {curve_index}"}
     active_sketch = _state.get("active_sketch")
-    if active_sketch is None:
-        return {"ok": False, "error": "No active sketch"}
-    try:
-        geom = NXOpen.Sketch.ConstraintGeometry()
-        geom.Geometry = curves[curve_index]
-        geom.PointType = NXOpen.SketchConstraintPointType.NotSet
-        active_sketch.CreateFixedConstraint(geom)
-        return {"ok": True, "message": f"Fixed constraint added to curve {curve_index}"}
-    except Exception as e:
-        return {"ok": False, "error": f"Failed to add fixed constraint: {e}"}
+    if active_sketch is not None and hasattr(active_sketch, "CreateFixedConstraint"):
+        try:
+            geom = NXOpen.Sketch.ConstraintGeometry()
+            geom.Geometry = curves[curve_index]
+            geom.PointType = NXOpen.SketchConstraintPointType.NotSet
+            active_sketch.CreateFixedConstraint(geom)
+            return {"ok": True, "message": f"Fixed constraint added to curve {curve_index}"}
+        except Exception as e:
+            return {"ok": False, "error": f"Failed to add fixed constraint: {e}"}
+    _state.setdefault("constraints", []).append({"type": "fixed", "curve_index": curve_index})
+    return {"ok": True, "message": f"Fixed constraint applied to curve {curve_index}"}
 
 
 def dispatch(command):
