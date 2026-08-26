@@ -2039,10 +2039,16 @@ def create_offset_linkage_arm(output_path=None):
 
 
 def extrude(distance, start=0, direction="auto"):
-    work_part = SESSION.Parts.Work
+    distance = _eval_val(distance)
+    start = _eval_val(start)
+    work_part = _ensure_work_part()
     curves = _state.get("last_curves", [])
     if not curves:
         return {"ok": False, "error": "No curves to extrude"}
+
+    prefix = _next_instance_prefix("EXTRUDE")
+    dist_name = _create_input_expression(work_part, f"{prefix}_DIST", distance)
+    start_name = _create_input_expression(work_part, f"{prefix}_START", start)
 
     builder = work_part.Features.CreateExtrudeBuilder(
         NXOpen.Features.Feature.Null
@@ -2051,12 +2057,10 @@ def extrude(distance, start=0, direction="auto"):
         section = work_part.Sections.CreateSection(
             float(0.0095), float(0.01), float(0.5)
         )
-        rules = []
-        for curve in curves:
-            rule = SESSION.Parts.Work.ScRuleFactory.CreateRuleCurveDumb(
-                [curve]
-            )
-            rules.append(rule)
+        rules = [
+            work_part.ScRuleFactory.CreateRuleCurveDumb([curve])
+            for curve in curves
+        ]
         section.AddToSection(
             rules, curves[0],
             NXOpen.NXObject.Null,
@@ -2074,13 +2078,22 @@ def extrude(distance, start=0, direction="auto"):
             dir_vec,
             NXOpen.SmartObject.UpdateOption.WithinModeling
         )
-        builder.Limits.StartExtend.Value.RightHandSide = str(float(start))
-        builder.Limits.EndExtend.Value.RightHandSide = str(float(distance))
+        builder.Limits.StartExtend.Value.RightHandSide = start_name
+        builder.Limits.EndExtend.Value.RightHandSide = dist_name
         
+        # Explicitly enforce Create (new solid body, never infer boolean / subtract / unite)
         try:
-            builder.BooleanOperation.Type = NXOpen.Features.Feature.BooleanType.Create
+            builder.BooleanOperation.SetBooleanOperationAndBody(
+                NXOpen.GeometricUtilities.BooleanOperation.BooleanType.Create,
+                NXOpen.Body.Null,
+            )
         except Exception:
-            pass
+            try:
+                builder.BooleanOperation.Type = (
+                    NXOpen.GeometricUtilities.BooleanOperation.BooleanType.Create
+                )
+            except Exception:
+                pass
 
         feature = builder.CommitFeature()
         _remember_feature(feature)
@@ -2865,11 +2878,17 @@ def extrude_from_sketch(sketch_name="last", distance=10.0, start=0.0, direction=
         builder.Direction = nx_dir
         builder.Limits.StartExtend.Value.RightHandSide = start_name
         builder.Limits.EndExtend.Value.RightHandSide = dist_name
+        # Explicitly enforce Create (new solid body, never infer boolean / subtract / unite)
         try:
-            builder.BooleanOperation.Type = NXOpen.GeometricUtilities.BooleanOperation.BooleanType.Create
+            builder.BooleanOperation.SetBooleanOperationAndBody(
+                NXOpen.GeometricUtilities.BooleanOperation.BooleanType.Create,
+                NXOpen.Body.Null,
+            )
         except Exception:
             try:
-                builder.BooleanOperation.Type = NXOpen.Features.Feature.BooleanType.Create
+                builder.BooleanOperation.Type = (
+                    NXOpen.GeometricUtilities.BooleanOperation.BooleanType.Create
+                )
             except Exception:
                 pass
 
