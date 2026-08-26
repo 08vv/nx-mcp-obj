@@ -39,8 +39,39 @@ def _debug_log(filename, content, mode="a"):
             pass
 
 
-SESSION = NXOpen.Session.GetSession()
-UF_SESSION = NXOpen.UF.UFSession.GetUFSession()
+SESSION = None
+UF_SESSION = None
+
+try:
+    SESSION = NXOpen.Session.GetSession()
+except Exception:
+    pass
+
+try:
+    UF_SESSION = NXOpen.UF.UFSession.GetUFSession()
+except Exception:
+    pass
+
+
+def _get_session():
+    global SESSION
+    if SESSION is None:
+        try:
+            SESSION = NXOpen.Session.GetSession()
+        except Exception:
+            pass
+    return SESSION
+
+
+def _get_uf():
+    global UF_SESSION
+    if UF_SESSION is None:
+        try:
+            UF_SESSION = NXOpen.UF.UFSession.GetUFSession()
+        except Exception:
+            pass
+    return UF_SESSION
+
 ACTIVE_SKETCH_PLANE = "XY"
 _state = {
     "last_curves": [],
@@ -422,6 +453,9 @@ def _iter_bodies(work_part):
 
 
 def _resolve_feature(reference="last"):
+    if reference is not None and not isinstance(reference, str):
+        if hasattr(reference, "GetFeatureName") or "Feature" in type(reference).__name__:
+            return reference
     work_part = _ensure_work_part()
     ref = str(reference or "last").strip().lower()
     if ref in {"last", "previous", "previous feature", "last feature", "last_created"}:
@@ -444,12 +478,18 @@ def _resolve_feature(reference="last"):
 
 
 def _resolve_body(reference="last"):
+    if reference is not None and not isinstance(reference, str):
+        if hasattr(reference, "GetEdges") or type(reference).__name__ == "Body":
+            return reference
     work_part = _ensure_work_part()
     ref = str(reference or "last").strip().lower()
     if ref in {"last", "last body", "last_created", "last created body", "target"}:
         body = _state.get("last_body")
         if body is not None:
             return body
+        bodies = _iter_bodies(work_part)
+        if bodies:
+            return _remember_body(bodies[-1])
 
     if ref.startswith("body_"):
         suffix = ref[5:].strip()
@@ -508,17 +548,162 @@ def _body_bounds(body):
 
 
 def _edge_midpoint(edge):
-    pt1, pt2, _vertex_count = UF_SESSION.Modeling.AskEdgeVerts(edge.Tag)
+    uf = _get_uf()
+    if uf is None:
+        return (0.0, 0.0, 0.0)
+    pt1, pt2, _vertex_count = uf.Modeling.AskEdgeVerts(edge.Tag)
     p1 = _point_tuple(pt1)
     p2 = _point_tuple(pt2)
     return tuple((a + b) / 2.0 for a, b in zip(p1, p2))
 
 
-def _edge_z_range(edge):
-    pt1, pt2, _vertex_count = UF_SESSION.Modeling.AskEdgeVerts(edge.Tag)
-    p1 = _point_tuple(pt1)
-    p2 = _point_tuple(pt2)
-    return min(p1[2], p2[2]), max(p1[2], p2[2])
+def _edge_z_and_radius(edge):
+    """Accurately compute Z-height and radial distance from Z-axis for an edge."""
+    uf = _get_uf()
+    if uf is None:
+        return 0.0, 0.0
+
+    # 1. Check if edge vertices are distinct
+    try:
+        pt1, pt2, count = uf.Modeling.AskEdgeVerts(edge.Tag)
+        if count > 0:
+            p1 = _point_tuple(pt1)
+            p2 = _point_tuple(pt2)
+            z = (p1[2] + p2[2]) / 2.0
+            r = math.sqrt(((p1[0] + p2[0]) / 2.0) ** 2 + ((p1[1] + p2[1]) / 2.0) ** 2)
+            if count > 1 or abs(r) > 0.001:
+                return z, r
+    except Exception:
+        pass
+
+    # 2. For closed circular edges (count == 0), check adjacent planar and cylindrical faces
+    try:
+        faces = getattr(edge, "GetFaces", lambda: [])() or []
+        edge_z = None
+        edge_r = None
+        for f in faces:
+            try:
+                ftype, origin, dir, other = uf.Modeling.AskFaceData(f.Tag)
+                # Planar face: origin[2] is the Z-plane!
+                if ftype == 22:  # planar face
+                    edge_z = origin[2]
+                elif ftype == 16:  # cylinder face
+                    edge_r = other[0] if isinstance(other, (list, tuple)) else float(other)
+            except Exception:
+                pass
+        if edge_z is not None or edge_r is not None:
+            return (edge_z if edge_z is not None else 0.0), (edge_r if edge_r is not None else 0.0)
+    except Exception:
+        pass
+
+    # 3. Fallback: Eval
+    try:
+        ev = uf.Eval.Initialize(edge.Tag)
+        try:
+            if uf.Eval.IsArc(ev):
+                arc = uf.Eval.AskArc(ev)
+                center = _point_tuple(arc.center)
+                return center[2], float(arc.radius)
+        finally:
+            try:
+                uf.Eval.Free(ev)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return 0.0, 0.0
+
+
+def _resolve_feature_edges(body, feature_ref_key, sub_filter=None):
+    """Resolve edges on a body that belong to a specific feature with optional sub-filtering."""
+    edges = list(body.GetEdges() or [])
+    
+    # 1. Look up in _state["features"]
+    feat_meta = None
+    target_key = feature_ref_key.lower().replace("-", "_").strip()
+    
+    if target_key in _state.get("features", {}):
+        feat_meta = _state["features"][target_key]
+    else:
+        # Search by normalized key
+        for k, v in _state.get("features", {}).items():
+            k_norm = k.replace("(", "_").replace(")", "").replace(" ", "").lower()
+            if target_key == k_norm or target_key in k.lower() or k.lower() in target_key:
+                feat_meta = v
+                break
+        if feat_meta is None:
+            import re
+            m = re.match(r'^([a-z_]+?)_?(\d+)$', target_key)
+            if m:
+                prefix, idx = m.group(1).rstrip("_"), int(m.group(2))
+                matching = []
+                for k, v in _state.get("features", {}).items():
+                    k_clean = re.sub(r'[\(\)\d_ ]', '', k.lower())
+                    if prefix == k_clean or prefix in k.lower():
+                        matching.append(v)
+                if 1 <= idx <= len(matching):
+                    feat_meta = matching[idx - 1]
+                elif idx == 0 and len(matching) > 0:
+                    feat_meta = matching[0]
+
+    if feat_meta is None:
+        return []
+
+    target_feat_obj = feat_meta["feature"] if isinstance(feat_meta, dict) else feat_meta
+    target_feat_tag = getattr(target_feat_obj, "Tag", None)
+    initial_tags = set(feat_meta.get("edge_tags", [])) if isinstance(feat_meta, dict) else set()
+    
+    matched = []
+    uf = _get_uf()
+    for e in edges:
+        if getattr(e, "Tag", None) in initial_tags:
+            matched.append(e)
+            continue
+        try:
+            if uf is not None:
+                feats = uf.Modeling.AskEdgeFeats(e.Tag) or []
+                if target_feat_tag and target_feat_tag in feats:
+                    matched.append(e)
+        except Exception:
+            pass
+
+    if not matched and isinstance(feat_meta, dict):
+        # Fallback: check faces of the feature if edge tags were modified by booleans
+        face_tags = set(feat_meta.get("face_tags", []))
+        if face_tags:
+            for e in edges:
+                e_faces = getattr(e, "GetFaces", lambda: [])() or []
+                if any(getattr(f, "Tag", None) in face_tags for f in e_faces):
+                    matched.append(e)
+                    
+    if not matched:
+        return []
+        
+    if sub_filter:
+        sub = sub_filter.lower().strip().replace("-", "_")
+        edge_data = []
+        for e in matched:
+            z, r = _edge_z_and_radius(e)
+            edge_data.append((e, z, r))
+            
+        if sub in {"top", "max_z", "top_edge", "top_edges"}:
+            valid_z = [z for _, z, _ in edge_data]
+            if valid_z:
+                max_z = max(valid_z)
+                return [e for e, z, _ in edge_data if abs(z - max_z) < 0.1]
+        elif sub in {"bottom", "min_z", "bottom_edge", "bottom_edges"}:
+            valid_z = [z for _, z, _ in edge_data]
+            if valid_z:
+                min_z = min(valid_z)
+                return [e for e, z, _ in edge_data if abs(z - min_z) < 0.1]
+        elif sub in {"outer", "outer_edge", "outer_edges", "rim"}:
+            valid_r = [r for _, _, r in edge_data]
+            if valid_r:
+                max_r = max(valid_r)
+                return [e for e, _, r in edge_data if abs(r - max_r) < 0.5]
+                
+    return matched
 
 
 def _resolve_edges(body_reference="last", edge_reference="outer_edges"):
@@ -529,27 +714,17 @@ def _resolve_edges(body_reference="last", edge_reference="outer_edges"):
 
     ref = str(edge_reference or "all").strip().lower().replace("-", "_")
 
-    # Feature-scoped edge lookup check
+    # Feature-scoped edge lookup check (e.g. "feature:cylinder_1", "cylinder_2:top", "hub:top")
     feature_ref_key = ref.removeprefix("feature:").strip()
-    if feature_ref_key in _state.get("features", {}):
-        feat_meta = _state["features"][feature_ref_key]
-        if isinstance(feat_meta, dict) and "edge_tags" in feat_meta:
-            target_tags = set(feat_meta["edge_tags"])
-            matched = [e for e in edges if getattr(e, "Tag", None) in target_tags]
-            if matched:
-                return matched
-            raise SelectionError(
-                f"Feature '{feature_ref_key}' has no surviving edges on active body after boolean/modifying operations."
-            )
-        elif hasattr(feat_meta, "GetEntities"):
-            feat_entities = feat_meta.GetEntities() or []
-            feat_edge_tags = {e.Tag for e in feat_entities if getattr(e, "Tag", None) and "Edge" in type(e).__name__}
-            matched = [e for e in edges if getattr(e, "Tag", None) in feat_edge_tags]
-            if matched:
-                return matched
-            raise SelectionError(
-                f"Feature '{feature_ref_key}' has no surviving edges on active body after boolean/modifying operations."
-            )
+    sub_filter = None
+    if ":" in feature_ref_key:
+        parts = feature_ref_key.split(":", 1)
+        feature_ref_key = parts[0].strip()
+        sub_filter = parts[1].strip()
+
+    feat_matched = _resolve_feature_edges(body, feature_ref_key, sub_filter)
+    if feat_matched:
+        return feat_matched
 
     if ref in {"all", "all_edges", "outer", "outer_edges"}:
         return edges
@@ -2247,7 +2422,7 @@ def add_fillet(radius, body="last", edges="outer_edges"):
     try:
         collector = work_part.ScCollectors.CreateCollector()
         rule = work_part.ScRuleFactory.CreateRuleEdgeMultipleSeedTangent(
-            selected_edges,
+            [selected_edges[0]],
             0.5,
             True,
         )
