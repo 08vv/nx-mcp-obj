@@ -1,3 +1,4 @@
+import math
 import os
 
 from ..bridge import runner
@@ -312,3 +313,55 @@ def list_feature_edges(feature_name: str):
     except Exception as e:
         return ToolError(str(e))
 
+
+@mcp_tool(
+    "polar_to_cartesian_points",
+    "Convert a list of polar (r, theta_deg) points to Cartesian (x, y) coordinates. "
+    "Pure deterministic math — use this instead of doing trigonometry in-context.",
+)
+def polar_to_cartesian_points(points: list[dict]):
+    """
+    Convert polar coordinates to Cartesian coordinates.
+
+    Each point dict should have 'r' (radius) and 'theta_deg' (angle in degrees).
+    Optionally include 'z' for 3D output.
+
+    Returns a list of {x, y} or {x, y, z} dicts with values rounded to 6 decimal places.
+
+    :param points: List of dicts with keys 'r' and 'theta_deg' (and optionally 'z').
+    """
+    if not isinstance(points, list):
+        return ToolError("'points' must be a list of {r, theta_deg} dicts")
+
+    result = []
+    for i, pt in enumerate(points):
+        if not isinstance(pt, dict):
+            return ToolError(f"Point {i} is not a dict: {pt}")
+        r = pt.get("r")
+        theta_deg = pt.get("theta_deg")
+        if r is None or theta_deg is None:
+            return ToolError(
+                f"Point {i} missing 'r' or 'theta_deg': {pt}"
+            )
+        try:
+            r = float(r)
+            theta_deg = float(theta_deg)
+        except (TypeError, ValueError) as e:
+            return ToolError(f"Point {i} has non-numeric value: {e}")
+
+        theta_rad = math.radians(theta_deg)
+        x = round(r * math.cos(theta_rad), 6)
+        y = round(r * math.sin(theta_rad), 6)
+        out = {"x": x, "y": y}
+        if "z" in pt:
+            try:
+                out["z"] = round(float(pt["z"]), 6)
+            except (TypeError, ValueError):
+                out["z"] = 0.0
+        result.append(out)
+
+    import json as _json
+    return ToolResult(
+        f"Converted {len(result)} polar points to Cartesian:\n"
+        + _json.dumps(result, indent=2)
+    )
