@@ -522,29 +522,42 @@ def _point_tuple(point):
 
 
 def _body_bounds(body):
-    try:
-        bbox = UF_SESSION.Modl.AskBoundingBox(body.Tag)
-        return (
-            (float(bbox[0]), float(bbox[1]), float(bbox[2])),
-            (float(bbox[3]), float(bbox[4]), float(bbox[5])),
-        )
-    except Exception:
-        pass
+    uf = _get_uf()
+    if uf is not None:
+        try:
+            bbox = uf.Modl.AskBoundingBox(body.Tag)
+            return (
+                (float(bbox[0]), float(bbox[1]), float(bbox[2])),
+                (float(bbox[3]), float(bbox[4]), float(bbox[5])),
+            )
+        except Exception:
+            pass
 
     points = []
     for edge in list(body.GetEdges() or []):
         try:
-            pt1, pt2, _vertex_count = UF_SESSION.Modeling.AskEdgeVerts(edge.Tag)
-            points.extend([_point_tuple(pt1), _point_tuple(pt2)])
+            if uf is not None:
+                pt1, pt2, _vertex_count = uf.Modeling.AskEdgeVerts(edge.Tag)
+                points.extend([_point_tuple(pt1), _point_tuple(pt2)])
         except Exception:
             continue
     if not points:
-        raise SelectionError("Could not determine body bounds")
+        raise SelectionError(f"Could not determine body bounds for '{_body_name(body)}'")
 
     xs = [p[0] for p in points]
     ys = [p[1] for p in points]
     zs = [p[2] for p in points]
     return (min(xs), min(ys), min(zs)), (max(xs), max(ys), max(zs))
+
+
+def _format_bounds(body):
+    if body is None:
+        return "None"
+    try:
+        min_p, max_p = _body_bounds(body)
+        return f"[min=({min_p[0]:.2f}, {min_p[1]:.2f}, {min_p[2]:.2f}), max=({max_p[0]:.2f}, {max_p[1]:.2f}, {max_p[2]:.2f})]"
+    except Exception as e:
+        return f"[bounds: {e}]"
 
 
 def _edge_midpoint(edge):
@@ -2326,7 +2339,10 @@ def _boolean_operation(operation, target="last", tool="last"):
         tool_body = _resolve_body(tool)
 
     if target_body == tool_body:
-        raise SelectionError("Boolean target and tool resolve to the same body")
+        raise SelectionError(
+            f"Boolean target and tool resolve to the same body '{_body_name(target_body)}' "
+            f"with bounds {_format_bounds(target_body)}. Did you mean to operate on two distinct bodies?"
+        )
 
     _debug_log("debug_unite_run.txt", f"Operation: {operation}\n"
                f"target input: {target} -> resolved tag: {target_body.Tag if target_body else None}\n"
@@ -2347,6 +2363,15 @@ def _boolean_operation(operation, target="last", tool="last"):
         _set_boolean_inputs(builder, work_part, target_body, [tool_body])
         feature = builder.CommitFeature()
         _remember_feature(feature)
+    except Exception as e:
+        target_name = _body_name(target_body)
+        tool_name = _body_name(tool_body)
+        target_bb = _format_bounds(target_body)
+        tool_bb = _format_bounds(tool_body)
+        raise RuntimeError(
+            f"Boolean {operation_name} failed between target '{target_name}' {target_bb} "
+            f"and tool '{tool_name}' {tool_bb}: {e}. Check that target and tool bodies intersect in 3D space."
+        )
     finally:
         builder.Destroy()
 
@@ -2480,7 +2505,16 @@ def _subtract_cylinder_hole_parametric(target_body, x, y, z, d_name, depth_name,
         result = boolean_subtract(_body_name(target_body), _body_name(tool_body))
     except Exception as e:
         _state["last_body"] = saved_last_body
-        return {"ok": False, "error": f"Boolean subtract failed during hole creation: {e}"}
+        target_bb = _format_bounds(target_body)
+        tool_bb = _format_bounds(tool_body)
+        return {
+            "ok": False,
+            "error": (
+                f"Boolean subtract failed during hole creation at ({x}, {y}, {z}): "
+                f"target body '{_body_name(target_body)}' {target_bb}, "
+                f"tool cylinder {tool_bb}: {e}"
+            ),
+        }
     if result.get("ok"):
         result["message"] = (
             f"Hole created by subtracting a cylindrical tool body"
