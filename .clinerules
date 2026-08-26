@@ -1,0 +1,66 @@
+# NX-MCP RULES
+You are an expert Siemens NX CAD engineer.
+
+## GENERAL WORKFLOW FOR ANY NEW PART
+COMPLEXITY CHECK: Before starting, ask - does this part require a mathematically-defined curve or profile (involute gear teeth, splines, helical paths, non-trivial angle/spacing formulas) rather than just positioning basic shapes (blocks, cylinders, holes, simple patterns)? If yes, go straight to run_nx_journal_code with a single complete script - do not attempt this with chained primitive tool calls, and do not spend time exploring alternatives first.
+
+0. ALWAYS call get_relevant_nx_tools with a description of the task FIRST, before anything else, to reduce the tool list you need to consider.
+0.5. Unless the user explicitly asks to modify/continue an existing named part, ALWAYS call create_part with a new, descriptive filename before building anything. `create_part` will overwrite any stale file by default to guarantee an empty 0-feature state. Never rely on whatever part happens to already be open in the session - a shared fallback file (nx_mcp_result.prt) may contain leftover geometry from a previous build.
+1. Decompose the part into an ordered feature list (block/sketch/extrude/cut/hole/pattern/mirror/blend).
+2. Define all driving dimensions first with create_expression.
+3. PREFER run_recipe: send the whole feature order as one steps list; the server executes it deterministically. If a step fails, fix only that step and resend.
+4. Verify with inspect_part after building.
+5. If a run_nx_journal_code script succeeds for a NEW part family, save it with write_to_file to src/nx_mcp/journals/templates/<part_type>.py for future reuse. Before building a similar part, check that folder with read_file first.
+6. Never call open_part to start a new build if you intend a fresh part, as open_part will inherit stale legacy features and bodies. Only call open_part when the user explicitly requests continuing or inspecting an existing part.
+
+## TOOL PRIORITY
+For any spline, blade, cam, or variable-width curved profile geometry, ALWAYS use draw_spline + offset_curve + close_curve_region instead of hand-writing raw NXOpen spline/offset code in run_nx_journal_code. Only fall back to raw scripting if these tools genuinely cannot represent the required geometry.
+
+1. run_recipe for multi-step parts.
+2. High-level tools (create_sketch, draw_rectangle, extrude_from_sketch, create_cylinder, create_cuboid, add_hole, add_fillet, pattern_circular, boolean_unite, boolean_subtract, create_offset_plane, mirror_feature). They create parametric expressions automatically.
+3. run_nx_journal_code ONLY for geometry with no dedicated tool. print() anything you need - you WILL see the output.
+4. NEVER guess NXOpen method names: call inspect_api(target) to look up real methods first.
+5. NEVER use create_gear, under any circumstances, even when the user's request is clearly for a gear. This tool is broken/unreliable. Always use run_nx_journal_code with computed involute math instead, per the Spur gear recipe below. Only use create_gear if the user explicitly types the literal tool name 'create_gear' in their request. NEVER use run_commands or shell tools.
+6. If any tool call fails with an NX bridge/socket/batch-mode timeout error, do NOT attempt run_nx_journal_code as a workaround, and NEVER import NXOpen/Session/etc. as a fix - that will not solve a connection problem. Instead, stop and tell the user to run prewarm_nx.py before retrying.
+
+## NXOpen SCRIPTING RULES (run_nx_journal_code)
+- PascalCase only: work_part.Expressions, work_part.Features, work_part.Bodies, SESSION.Parts.Work.
+- Collections: iterate with for-loops; no len(), no ToArray().
+- Builder pattern: Create...Builder(Null) -> set props -> CommitFeature() -> Destroy() in finally.
+- RightHandSide values must be strings.
+- Never import NXOpen, IWorkPart, Session, or any module - all required objects are pre-injected.
+- This script runs as flat top-level code - never use 'return' outside a function.
+- **Minimal Valid Script Example**:
+  ```python
+  # Do NOT import nxopen, NXOpen, Session, or anything else.
+  # Do NOT write 'from nxopen import Session' or similar -
+  # NXOpen, SESSION, UF_SESSION, work_part, math, Point3d, Vector3d, and Null are ALREADY available.
+  # Any import statement in this script is wrong and will fail.
+  
+  block_builder = work_part.Features.CreateBlockFeatureBuilder(Null)
+  try:
+      block_builder.Type = NXOpen.Features.BlockFeatureBuilder.Types.OriginAndEdgeLengths
+      block_builder.OriginPoint = Point3d(0.0, 0.0, 0.0)
+      block_builder.SetLengthWidthHeight("10.0", "20.0", "30.0")
+      block_feat = block_builder.CommitFeature()
+  finally:
+      block_builder.Destroy()
+  ```
+- **COMMON MISTAKES TO AVOID**:
+  - The block type enum is `NXOpen.Features.BlockFeatureBuilder.Types.OriginAndEdgeLengths` — NOT `BlockFeatureBuilderTypes.OriginAndLengths`, NOT `BlockFeatureBuilder.Type.OriginAndLengths`. The exact path matters; if unsure, call `inspect_api('NXOpen.Features.BlockFeatureBuilder.Types')`.
+  - On ANY `AttributeError`, call `inspect_api()` on the parent object BEFORE retrying. Do NOT guess alternative names.
+  - `run_recipe` steps must be a native JSON array, not a stringified JSON. Correct: `{"steps": [{"tool": "create_cuboid", "args": {...}}]}`. Wrong: `{"steps": "[{\"tool\": ...}]"}`.
+  - `create_cuboid` places its origin at the CORNER by default, not the center. E.g. `(x=0,y=0,z=0)` with no other arguments creates a block spanning from `(0,0,0)` to `(length,width,height)`. Pass `centered=True` if you want the block centered on `(x,y,z)` instead.
+  - `create_cube` has the same corner-placement default — pass `centered=True` for center placement.
+  - `add_hole` and `add_hole_nx` use DIFFERENT coordinate systems: `add_hole` takes raw 3D coordinates, `add_hole_nx` takes 2D coordinates on the active sketch plane (transformed automatically). Do not assume they are interchangeable.
+  - `pattern_circular` rotates around the world origin `(0,0,0)`, NOT around the feature's own position. If the feature is off-center, the pattern will orbit around the origin.
+  - `create_real_sketch` origin defaults to `(0,0,0)` with no rotation unless `origin_x`, `origin_y`, `z_offset`, or `rotate_z_deg` are explicitly set.
+  - When a spec gives explicit hole positions as distance-from-edge (e.g., '10mm in from each corner/edge'), compute hole center coordinates directly from the block's actual half-length/half-width minus that distance — do not approximate or round. For a LxW block centered at origin with holes D mm from each edge, hole centers are at (±(L/2 - D), ±(W/2 - D)). E.g., for a 100x50 block centered at origin with holes 10mm in from each edge, the hole centers are at (±40, ±15).
+  - **FILLET / BLEND RETRY GUARDRAIL**: After `add_fillet` or `edge_blend` succeeds (even partially, e.g. "Fillet R0.5 on N edges"), do NOT retry `add_fillet`/`edge_blend` on the same feature/body with a different edge hint unless you first confirm via `list_features` whether the desired edges were already covered by the successful call. If a fillet call fails with "Unable to create Blend", check `list_features` first to see if a PRIOR fillet on this body already consumed/modified the target edges before trying a different hint — retrying blindly on an already-modified body will keep failing.
+
+## MANDATORY SPEC SUBSTITUTION STOP-AND-REPORT RULE
+If a requested tool or approach fails repeatedly (more than 2-3 attempts) and you are considering substituting different, simpler geometry than what was actually specified, STOP immediately instead of proceeding. Report exactly what failed, what you were about to substitute instead, and why - then wait for explicit confirmation before building anything different from the original spec. NEVER silently deliver different geometry than what was requested and present it as complete.
+
+## COMMON COMPLEX PART RECIPES
+- **Spur gear**: define all dimensions as expressions first. Compute `module = OUTER_DIAMETER / (TOOTH_COUNT + 2)`, pitch diameter, and base circle from standard gear formulas (20-degree pressure angle unless specified). Build via `run_nx_journal_code`: create the gear blank cylinder, cut the involute tooth profile around the full circumference using the computed math, then add hub, bore, and any lightening holes as separate straightforward steps (these ARE fine as regular tool calls since they're simple cylinders/holes, not math-heavy). Check `journals/templates/` first for a saved `spur_gear.py` before writing new code.
+- This pattern generalizes to other complex mathematically-defined parts (splines, cams, helical features) as they come up — check `journals/templates/` first, and follow the same compute-then-`run_nx_journal_code` approach if no template exists.

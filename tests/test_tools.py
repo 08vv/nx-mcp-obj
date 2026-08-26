@@ -418,3 +418,27 @@ def test_primitive_creation_requires_dimensions():
         modeling.create_cube(x=0.0, y=0.0, z=0.0)
     with pytest.raises(TypeError):
         modeling.create_cuboid(x=0.0, y=0.0, z=0.0)
+
+
+def test_utility_tools_route_to_bridge(monkeypatch):
+    monkeypatch.delenv("NX_MCP_USE_MOCK_NXOPEN", raising=False)
+    calls = []
+
+    def fake_call_nx(tool, args):
+        calls.append((tool, args))
+        return {"ok": True, "message": f"bridge {tool}"}
+
+    monkeypatch.setattr(utility.runner, "call_nx", fake_call_nx)
+
+    assert utility.get_active_part().message == "bridge get_active_part"
+    assert utility.inspect_api("work_part", callable_only=True).message == "bridge inspect_api"
+    assert utility.get_last_operation_status().message == "bridge get_last_operation_status"
+    assert utility.list_feature_edges("cylinder_1").message == "bridge list_feature_edges"
+
+    assert calls == [
+        ("get_active_part", {}),
+        ("inspect_api", {"target": "work_part", "callable_only": True}),
+        ("get_last_operation_status", {}),
+        ("list_feature_edges", {"feature_name": "cylinder_1"}),
+    ]
+

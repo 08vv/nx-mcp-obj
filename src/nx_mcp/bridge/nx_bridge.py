@@ -820,8 +820,48 @@ def _update_result_files(filepath):
         sys.stderr.write(f"[WARN] _update_result_files failed: {e}\n")
 
 
-def create_part(filename):
+def create_part(filename, overwrite=True):
     global _counters_seeded
+    import os
+    filepath = os.path.abspath(filename)
+    
+    # 1. If part is already open in session, close it first
+    if 'SESSION' in globals() and SESSION and hasattr(SESSION, "Parts"):
+        try:
+            for part in list(SESSION.Parts):
+                try:
+                    if os.path.abspath(part.FullPath).lower() == filepath.lower():
+                        part.Close(
+                            NXOpen.BasePart.CloseWholeTree.FalseValue,
+                            NXOpen.BasePart.CloseModified.CloseModified,
+                            None,
+                        )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # 2. If file exists on disk and overwrite is True, remove it
+    if os.path.exists(filepath):
+        if overwrite:
+            try:
+                os.remove(filepath)
+            except Exception:
+                # If removal failed (e.g. file lock), generate a fresh non-colliding name
+                base, ext = os.path.splitext(filepath)
+                idx = 1
+                while os.path.exists(f"{base}_{idx}{ext}"):
+                    idx += 1
+                filepath = f"{base}_{idx}{ext}"
+                filename = filepath
+        else:
+            base, ext = os.path.splitext(filepath)
+            idx = 1
+            while os.path.exists(f"{base}_{idx}{ext}"):
+                idx += 1
+            filepath = f"{base}_{idx}{ext}"
+            filename = filepath
+
     SESSION.Parts.NewDisplay(
         filename,
         NXOpen.Part.Units.Millimeters,
@@ -829,17 +869,25 @@ def create_part(filename):
     work_part = SESSION.Parts.Work
     if work_part is None:
         return {"ok": False, "error": "Part created but work part not set"}
-    # Reset and re-seed counters for the new part
+    # Reset and re-seed counters and clear transient state for the new part
     _expression_counters.clear()
     _instance_counters.clear()
     _counters_seeded = False
     _seed_counters_from_part(work_part)
     _counters_seeded = True
+    
+    _state["last_feature"] = None
+    _state["last_body"] = None
+    _state["last_sketch"] = None
+    _state["last_curves"] = []
+    _state["curve_history"] = []
+    _state["features"] = {}
+    _state["bodies"] = {}
+    _state["sketches"] = {}
+    
     fit_view()
-    import os
-    filepath = os.path.abspath(filename)
     _update_result_files(filepath)
-    return {"ok": True, "message": f"Created and displayed: {filename}", "filepath": filepath}
+    return {"ok": True, "message": f"Created and displayed fresh part: {filename}", "filepath": filepath}
 
 
 def open_part(filepath):
@@ -876,7 +924,16 @@ def open_part(filepath):
         _counters_seeded = True
         fit_view()
         _update_result_files(target_abs)
-        return {"ok": True, "message": f"Part already open, activated: {filepath}", "filepath": target_abs}
+        feat_count = len(list(existing_part.Features)) if hasattr(existing_part, "Features") else 0
+        body_count = len(list(existing_part.Bodies)) if hasattr(existing_part, "Bodies") else 0
+        warning = f" [NOTICE: Part contains {feat_count} features and {body_count} bodies]" if feat_count > 0 else ""
+        return {
+            "ok": True,
+            "message": f"Part already open, activated: {filepath}{warning}",
+            "filepath": target_abs,
+            "existing_features_count": feat_count,
+            "existing_bodies_count": body_count,
+        }
 
     try:
         try:
@@ -897,7 +954,16 @@ def open_part(filepath):
     fit_view()
     actual_path = os.path.abspath(work_part.FullPath if work_part else filepath)
     _update_result_files(actual_path)
-    return {"ok": True, "message": f"Opened and displayed: {filepath}", "filepath": actual_path}
+    feat_count = len(list(work_part.Features)) if (work_part and hasattr(work_part, "Features")) else 0
+    body_count = len(list(work_part.Bodies)) if (work_part and hasattr(work_part, "Bodies")) else 0
+    warning = f" [NOTICE: Part contains {feat_count} features and {body_count} bodies]" if feat_count > 0 else ""
+    return {
+        "ok": True,
+        "message": f"Opened and displayed: {filepath}{warning}",
+        "filepath": actual_path,
+        "existing_features_count": feat_count,
+        "existing_bodies_count": body_count,
+    }
 
 
 def save_part():
@@ -2913,35 +2979,44 @@ def pattern_circular(
         if service is None:
             raise SelectionError("Pattern builder has no PatternService")
 
-        origin = NXOpen.Point3d(0.0, 0.0, 0.0)
-        nx_dir = _create_direction(work_part, origin, _direction_vector(resolved_axis))
+        # ──────────────────────────────────────────────────────────────
+        # CRITICAL: Set PatternType to Circular BEFORE configuring
+        # CircularDefinition.  The builder defaults to Linear; if this
+        # assignment is missing or uses the wrong enum path the commit
+        # silently produces a single-instance linear pattern instead of
+        # a radial array.
+        # ──────────────────────────────────────────────────────────────
+        service.PatternType = NXOpen.GeometricUtilities.PatternDefinition.PatternEnum.Circular
+
+        origin_pt = NXOpen.Point3d(0.0, 0.0, 0.0)
+        dir_vector = _direction_vector(resolved_axis)
 
         # Try CircularDefinition first (NX 10+)
         circ = getattr(service, "CircularDefinition", None)
         if circ is not None:
             # Set RotationAxis and RotationCenter
-            origin_pt = NXOpen.Point3d(0.0, 0.0, 0.0)
-            dir_vector = _direction_vector(resolved_axis)
-            axis_obj = work_part.Axes.CreateAxis(origin_pt, dir_vector, NXOpen.SmartObjectUpdateOption.WithinModeling)
-            
+            axis_obj = work_part.Axes.CreateAxis(
+                origin_pt, dir_vector,
+                NXOpen.SmartObject.UpdateOption.WithinModeling,
+            )
             circ.RotationAxis = axis_obj
             circ.RotationCenter = work_part.Points.CreatePoint(origin_pt)
-            
-            # Set spacing type to count and span (PitchAndSpan)
-            circ.AngularSpacing.SpaceType = NXOpen.GeometricUtilities.PatternSpacingSpacingType.PitchAndSpan
+            circ.IncludeSeedToggle = True
+
+            # Use PitchAngle spacing: count copies, each separated by
+            # (angle_total / count) degrees.  This matches the proven
+            # pattern used by build_impeller_disk3.py and other working
+            # reference scripts.
+            pitch_deg = angle_total / max(count, 1)
+            pitch_name = _create_input_expression(
+                work_part, f"{prefix}_PITCH", pitch_deg
+            )
             circ.AngularSpacing.NCopies.RightHandSide = count_name
-            circ.AngularSpacing.SpanAngle.RightHandSide = angle_name
-            if hasattr(service, "PatternType"):
-                try:
-                    service.PatternType = getattr(
-                        type(service).PatternType,
-                        "Circular",
-                        service.PatternType
-                    )
-                except Exception:
-                    pass
+            circ.AngularSpacing.PitchAngle.RightHandSide = pitch_name
         else:
             # Fallback: rectangular service with only X populated
+            origin = NXOpen.Point3d(0.0, 0.0, 0.0)
+            nx_dir = _create_direction(work_part, origin, dir_vector)
             rect = getattr(service, "RectangularDefinition", None)
             if rect is not None:
                 rect.XDirection = nx_dir
@@ -4629,6 +4704,200 @@ def inspect_part():
         "feature_count": len(features),
         "bodies": body_info,
     }
+
+
+def get_active_part():
+    """Return identity and state of the currently active NX work part."""
+    try:
+        work_part = SESSION.Parts.Work if 'SESSION' in globals() and SESSION else None
+        if work_part is None:
+            return {"ok": True, "message": "No active part in session"}
+        
+        comps = 0
+        try:
+            if hasattr(work_part, "ComponentAssembly") and work_part.ComponentAssembly and work_part.ComponentAssembly.RootComponent:
+                comps = len(work_part.ComponentAssembly.RootComponent.GetChildren())
+        except Exception:
+            pass
+            
+        try:
+            full_path = getattr(work_part, "FullPath", None) or getattr(work_part, "FullName", "Unknown (Unsaved)")
+        except Exception:
+            full_path = "Unknown (Unsaved)"
+                
+        try:
+            leaf_name = getattr(work_part, "Leaf", "Unknown")
+        except Exception:
+            leaf_name = "Unknown"
+            
+        try:
+            is_mod = getattr(work_part, "IsModified", "Unknown")
+        except Exception:
+            is_mod = "Unknown"
+            
+        msg = (
+            f"Active part = {full_path}\n"
+            f"Display name = {leaf_name}\n"
+            f"Modified = {is_mod}\n"
+            f"Components = {comps}"
+        )
+        return {
+            "ok": True,
+            "message": msg,
+            "full_path": str(full_path),
+            "leaf_name": str(leaf_name),
+            "is_modified": is_mod,
+            "components": comps,
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to get active part: {e}"}
+
+
+def get_last_operation_status():
+    """Return status and name of the last feature created or modified."""
+    try:
+        work_part = SESSION.Parts.Work if 'SESSION' in globals() and SESSION else None
+        if work_part is None:
+            return {"ok": True, "message": "No active part in session"}
+        features = _iter_features(work_part)
+        if not features:
+            return {"ok": True, "message": "No features in active part"}
+        last_feat = features[-1]
+        feat_name = _feature_name(last_feat)
+        return {"ok": True, "message": f"Last feature created/modified: {feat_name}\nStatus: OK"}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to get last operation status: {e}"}
+
+
+def inspect_api(target="work_part", callable_only=True):
+    """Inspect methods and attributes on NXOpen API objects."""
+    try:
+        ctx = {
+            "NXOpen": NXOpen if 'NXOpen' in globals() else None,
+            "SESSION": SESSION if 'SESSION' in globals() else None,
+            "UF_SESSION": UF_SESSION if 'UF_SESSION' in globals() else None,
+            "work_part": SESSION.Parts.Work if 'SESSION' in globals() and SESSION else None,
+        }
+        try:
+            obj = eval(target, {"__builtins__": {}}, ctx)
+        except Exception as e:
+            return {"ok": False, "error": f"Failed to resolve target '{target}': {e}"}
+            
+        items = []
+        for attr in dir(obj):
+            if attr.startswith("_"):
+                continue
+            try:
+                val = getattr(obj, attr)
+                is_call = callable(val)
+                if callable_only and not is_call:
+                    continue
+                items.append(f"{attr}{'()' if is_call else ''} : {type(val).__name__}")
+            except Exception:
+                items.append(attr)
+                
+        msg = f"Inspected '{target}' ({type(obj).__name__}) - {len(items)} items:\n" + "\n".join(sorted(items)[:100])
+        return {"ok": True, "message": msg, "target": target, "count": len(items)}
+    except Exception as e:
+        return {"ok": False, "error": f"inspect_api error: {e}"}
+
+
+def list_feature_edges(feature_name=""):
+    """List edge count and edge tags for a specific named feature."""
+    try:
+        work_part = _ensure_work_part()
+        feat = None
+        target_name = str(feature_name or "last").strip().lower()
+        if target_name in ("last", "last_feature", ""):
+            feat = _state.get("last_feature")
+            if feat is None:
+                features = _iter_features(work_part)
+                if features:
+                    feat = features[-1]
+        elif target_name in _state.get("features", {}):
+            meta = _state["features"][target_name]
+            feat = meta["feature"] if isinstance(meta, dict) and "feature" in meta else meta
+        else:
+            for k, v in _state.get("features", {}).items():
+                if k.replace("(", "_").replace(")", "").replace(" ", "") == target_name.replace("(", "_").replace(")", "").replace(" ", "") or target_name in k:
+                    feat = v["feature"] if isinstance(v, dict) and "feature" in v else v
+                    break
+            if feat is None:
+                for f in _iter_features(work_part):
+                    fn = _feature_name(f).lower()
+                    if fn == target_name or fn.replace("(", "_").replace(")", "") == target_name.replace("(", "_").replace(")", "") or target_name in fn:
+                        feat = f
+                        break
+        if feat is None:
+            return {"ok": False, "error": f"Feature '{feature_name}' not found"}
+        
+        edges = []
+        try:
+            edges = list(feat.GetEdges() or [])
+        except Exception:
+            pass
+        if not edges and hasattr(feat, "GetEntities"):
+            try:
+                entities = feat.GetEntities() or []
+                edges = [e for e in entities if "Edge" in type(e).__name__]
+            except Exception:
+                pass
+        return {
+            "ok": True,
+            "message": f"Feature '{_feature_name(feat)}' has {len(edges)} edges",
+            "edge_count": len(edges),
+            "edge_tags": [getattr(e, "Tag", 0) for e in edges if hasattr(e, "Tag")]
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to list feature edges: {e}"}
+
+
+def create_gear(outer_diameter, tooth_count, face_width, hub_diameter=0.0, hub_length=0.0, bore_diameter=0.0, lightening_hole_diameter=0.0, lightening_hole_pcd=0.0, lightening_hole_count=0):
+    """Build a parametric spur gear model."""
+    try:
+        outer_diameter = float(outer_diameter)
+        tooth_count = int(tooth_count)
+        face_width = float(face_width)
+        hub_diameter = float(hub_diameter)
+        hub_length = float(hub_length)
+        bore_diameter = float(bore_diameter)
+        lightening_hole_diameter = float(lightening_hole_diameter)
+        lightening_hole_pcd = float(lightening_hole_pcd)
+        lightening_hole_count = int(lightening_hole_count)
+
+        # Base disk for gear blank
+        cyl_res = create_cylinder(radius=outer_diameter / 2.0, height=face_width, x=0.0, y=0.0, z=0.0, direction="Z")
+        if not cyl_res.get("ok"):
+            return cyl_res
+
+        # Hub
+        if hub_diameter > 0.0 and hub_length > 0.0:
+            hub_res = create_cylinder(radius=hub_diameter / 2.0, height=face_width + hub_length, x=0.0, y=0.0, z=0.0, direction="Z")
+            if hub_res.get("ok"):
+                boolean_unite(target="last", tool="previous")
+
+        # Center bore
+        if bore_diameter > 0.0:
+            add_hole(diameter=bore_diameter, depth=face_width + hub_length + 10.0, x=0.0, y=0.0, z=0.0, direction="Z")
+
+        # Lightening holes
+        if lightening_hole_diameter > 0.0 and lightening_hole_pcd > 0.0 and lightening_hole_count > 0:
+            pcd_r = lightening_hole_pcd / 2.0
+            hole_x = pcd_r
+            hole_y = 0.0
+            add_hole(diameter=lightening_hole_diameter, depth=face_width + 10.0, x=hole_x, y=hole_y, z=0.0, direction="Z")
+            if lightening_hole_count > 1:
+                pattern_circular(feature_name="last", axis="Z", count=lightening_hole_count, angle_total=360.0)
+
+        return {
+            "ok": True,
+            "message": f"Created spur gear blank with {tooth_count} teeth (OD={outer_diameter}mm, face={face_width}mm)",
+            "outer_diameter": outer_diameter,
+            "tooth_count": tooth_count,
+            "face_width": face_width,
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to create gear: {e}"}
 
 
 def handle_line(line):
