@@ -1177,6 +1177,9 @@ def create_sketch(plane="XY"):
 
     _ensure_work_part()
 
+    if "last_curves" in _state and _state["last_curves"]:
+        _state.setdefault("curve_history", []).append(list(_state["last_curves"]))
+
     ACTIVE_SKETCH_PLANE = plane
     _state["last_curves"] = []
     _state["sketch_origin"] = [0.0, 0.0, 0.0]
@@ -1316,6 +1319,7 @@ def draw_line(x1, y1, x2, y2):
             except Exception:
                 pass
     _state.setdefault("last_curves", []).append(line)
+    _state.setdefault("curve_history", []).append([line])
     fit_view()
     return {"ok": True, "message": f"Line {x1},{y1} to {x2},{y2}"}
 
@@ -1359,6 +1363,7 @@ def draw_arc(cx, cy, radius, start_angle, end_angle):
             except Exception:
                 pass
     _state.setdefault("last_curves", []).append(arc)
+    _state.setdefault("curve_history", []).append([arc])
     fit_view()
     return {"ok": True, "message": f"Arc {cx},{cy} R={radius} {start_angle} to {end_angle} deg"}
 
@@ -3495,19 +3500,30 @@ def _resolve_face_by_coordinate(body_reference="last", x=0.0, y=0.0, z=0.0):
     faces = list(body.GetFaces() or [])
     if not faces:
         raise SelectionError(f"No faces found on body: {body_reference}")
+    if x is None and y is None and z is None:
+        if len(faces) == 1:
+            return faces[0]
+        raise SelectionError(
+            f"Ambiguous face selection: body '{_body_name(body)}' has {len(faces)} faces and no coordinates were provided"
+        )
+    target_x = float(x or 0.0)
+    target_y = float(y or 0.0)
+    target_z = float(z or 0.0)
     best_face = None
     min_dist = 999999.0
     for face in faces:
         try:
             face_type, origin, direction, bbox, radius, flag1, flag2 = UF_SESSION.Modl.AskFaceData(face.Tag)
             pt = _point_tuple(origin)
-            dist = math.sqrt((pt[0]-x)**2 + (pt[1]-y)**2 + (pt[2]-z)**2)
+            dist = math.sqrt((pt[0]-target_x)**2 + (pt[1]-target_y)**2 + (pt[2]-target_z)**2)
             if dist < min_dist:
                 min_dist = dist
                 best_face = face
         except Exception:
             if best_face is None:
                 best_face = face
+    if best_face is None:
+        raise SelectionError(f"Could not resolve face near coordinate ({target_x}, {target_y}, {target_z}) on body '{_body_name(body)}'")
     return best_face
 
 
@@ -3516,25 +3532,46 @@ def _resolve_edge_by_coordinate(body_reference="last", x=0.0, y=0.0, z=0.0):
     edges = list(body.GetEdges() or [])
     if not edges:
         raise SelectionError(f"No edges found on body: {body_reference}")
+    if x is None and y is None and z is None:
+        if len(edges) == 1:
+            return edges[0]
+        raise SelectionError(
+            f"Ambiguous edge selection: body '{_body_name(body)}' has {len(edges)} edges and no coordinates were provided"
+        )
+    target_x = float(x or 0.0)
+    target_y = float(y or 0.0)
+    target_z = float(z or 0.0)
     best_edge = None
     min_dist = 999999.0
     for edge in edges:
         try:
             pt = _edge_midpoint(edge)
-            dist = math.sqrt((pt[0]-x)**2 + (pt[1]-y)**2 + (pt[2]-z)**2)
+            dist = math.sqrt((pt[0]-target_x)**2 + (pt[1]-target_y)**2 + (pt[2]-target_z)**2)
             if dist < min_dist:
                 min_dist = dist
                 best_edge = edge
         except Exception:
             if best_edge is None:
                 best_edge = edge
+    if best_edge is None:
+        raise SelectionError(f"Could not resolve edge near coordinate ({target_x}, {target_y}, {target_z}) on body '{_body_name(body)}'")
     return best_edge
 
 
 def _resolve_curves(reference="last"):
     ref = str(reference or "last").strip().lower()
-    if ref in {"last", "last_curves", "previous_curves"}:
-        return _state.get("last_curves", [])
+    if ref in ("last", "", "active"):
+        curves = _state.get("last_curves", [])
+        if not curves:
+            raise SelectionError("No active/last curves available in state")
+        return curves
+    if ref in ("previous", "second_to_last", "penultimate"):
+        history = _state.get("curve_history", [])
+        if len(history) >= 2:
+            return history[-2]
+        if len(history) == 1:
+            return history[0]
+        raise SelectionError("No previous curves in history")
     if ref in _state["sketches"]:
         sketch_feature = _state["sketches"][ref]
         try:
@@ -3552,7 +3589,7 @@ def _resolve_curves(reference="last"):
             return list(feature.Sketch.GetAllGeometry() or [])
     except Exception:
         pass
-    return _state.get("last_curves", [])
+    raise SelectionError(f"Could not resolve curve reference: '{reference}'")
 
 
 def _build_section_from_curves(work_part, curves):
@@ -3578,9 +3615,45 @@ def _execute_surface_builder(builder_name, config_fn, success_message):
                 break
     if not callable(builder_factory):
         return {"ok": False, "error": f"NXOpen Features has no builder: {builder_name}"}
-    builder = builder_factory(NXOpen.Features.Feature.Null)
+    
+    builder = None
+    target_class_name = builder_name.replace("Create", "").replace("Builder", "")
+    target_class = getattr(NXOpen.Features, target_class_name, None) or getattr(NXOpen.GeometricUtilities, target_class_name, None)
+    type_null = getattr(target_class, "Null", None)
+
+    for arg in (type_null, NXOpen.Features.Feature.Null, NXOpen.NXObject.Null, None):
+        try:
+            if arg is not None:
+                builder = builder_factory(arg)
+            else:
+                builder = builder_factory()
+            if builder is not None:
+                break
+        except Exception:
+            continue
+
+    if builder is None:
+        try:
+            builder = builder_factory(NXOpen.Features.Feature.Null)
+        except Exception as e:
+            return {"ok": False, "error": f"Failed to instantiate {builder_name}: {e}"}
+
+    builder_info = {}
     try:
         config_fn(builder, work_part)
+        for prop in ("SectionList", "Sections", "GuideList", "Guide", "Section", "Radius", "FirstFaceCollector", "SecondFaceCollector", "BoundaryEdgeCollector"):
+            if hasattr(builder, prop):
+                try:
+                    val = getattr(builder, prop)
+                    if hasattr(val, "ToArray"):
+                        builder_info[prop] = len(list(val.ToArray() or []))
+                    elif hasattr(val, "__len__"):
+                        builder_info[prop] = len(val)
+                    else:
+                        builder_info[prop] = str(val)
+                except Exception:
+                    pass
+
         commit_method = getattr(builder, "CommitFeature", None) or getattr(builder, "Commit", None)
         if callable(commit_method):
             feature = commit_method()
@@ -3589,7 +3662,8 @@ def _execute_surface_builder(builder_name, config_fn, success_message):
         else:
             raise RuntimeError(f"Builder {builder_name} has no Commit or CommitFeature method")
     except Exception as e:
-        return {"ok": False, "error": f"Failed executing {builder_name}: {str(e)}"}
+        diag = f" (builder state: {builder_info})" if builder_info else ""
+        return {"ok": False, "error": f"Failed executing {builder_name}{diag}: {str(e)}"}
     finally:
         builder.Destroy()
     fit_view()
@@ -3599,16 +3673,24 @@ def _execute_surface_builder(builder_name, config_fn, success_message):
 def create_base_surface(plane="XY", width=50.0, height=50.0):
     width = float(width)
     height = float(height)
+    plane = str(plane).upper()
+    if width <= 0.0 or height <= 0.0:
+        return {"ok": False, "error": "Base surface width and height must be positive"}
+
     work_part = _ensure_work_part()
     create_sketch(plane)
-    draw_rectangle(-width/2, -height/2, width, height)
-    curves = _state.get("last_curves", [])
-    if not curves:
-        return {"ok": False, "error": "Failed to create curves for base surface"}
-    def config(builder, wp):
-        builder.Section = _build_section_from_curves(wp, curves)
-    res = _execute_surface_builder("CreateBoundedPlaneBuilder", config, f"Created base surface {width}x{height} on {plane}")
     _state["last_curves"] = []
+    draw_line(0.0, 0.0, width, 0.0)
+    if plane == "XY":
+        direction = "Y"
+    elif plane == "XZ":
+        direction = "Z"
+    else:  # YZ
+        direction = "Z"
+
+    res = extrude_surface(distance=height, start=0.0, direction=direction)
+    if res.get("ok"):
+        res["message"] = f"Created base surface {width}x{height} on {plane}"
     return res
 
 
@@ -3627,6 +3709,11 @@ def extrude_surface(distance, start=0.0, direction="auto"):
         builder.Direction = _create_direction(wp, origin, _direction_vector(resolved_dir))
         builder.Limits.StartExtend.Value.RightHandSide = _create_input_expression(wp, f"{prefix}_START", start)
         builder.Limits.EndExtend.Value.RightHandSide = _create_input_expression(wp, f"{prefix}_DIST", distance)
+        try:
+            if hasattr(builder, "FeatureOptions") and hasattr(builder.FeatureOptions, "BodyType"):
+                builder.FeatureOptions.BodyType = NXOpen.GeometricUtilities.FeatureOptions.BodyType.Sheet
+        except Exception:
+            pass
         for attr in ("FeatureOption", "FeatureOptions"):
             if hasattr(builder, attr):
                 try:
@@ -3850,7 +3937,14 @@ def bounded_plane(boundary="last"):
     if not curves:
         return {"ok": False, "error": "No boundary curves for Bounded Plane"}
     def config(builder, wp):
-        builder.Section = _build_section_from_curves(wp, curves)
+        sec = _build_section_from_curves(wp, curves)
+        if hasattr(builder, "BoundingCurves"):
+            try:
+                builder.BoundingCurves.Add(sec)
+            except Exception:
+                builder.BoundingCurves = sec
+        elif hasattr(builder, "Section"):
+            builder.Section = sec
     return _execute_surface_builder("CreateBoundedPlaneBuilder", config, "Bounded plane created")
 
 
@@ -3906,15 +4000,33 @@ def law_extension(distance=10.0, angle=45.0, boundary_edge_x=0.0, boundary_edge_
     return _execute_surface_builder("CreateLawExtensionBuilder", config, "Law extension surface created")
 
 
+def _add_to_object_list(obj_list, item):
+    if hasattr(obj_list, "Append"):
+        try:
+            obj_list.Append(item)
+            return
+        except Exception:
+            pass
+    if hasattr(obj_list, "Add"):
+        try:
+            obj_list.Add(item)
+            return
+        except Exception:
+            pass
+
+
 def studio_surface(section1="last", section2="last"):
     sec1 = _resolve_curves(section1)
     sec2 = _resolve_curves(section2)
     def config(builder, wp):
         s1 = _build_section_from_curves(wp, sec1)
         s2 = _build_section_from_curves(wp, sec2)
-        if hasattr(builder, "Sections"):
-            builder.Sections.Add(s1)
-            builder.Sections.Add(s2)
+        if hasattr(builder, "SectionList"):
+            _add_to_object_list(builder.SectionList, s1)
+            _add_to_object_list(builder.SectionList, s2)
+        elif hasattr(builder, "Sections"):
+            _add_to_object_list(builder.Sections, s1)
+            _add_to_object_list(builder.Sections, s2)
     return _execute_surface_builder("CreateStudioSurfaceBuilder", config, "Studio surface created")
 
 
@@ -3937,9 +4049,12 @@ def section_surface(section1="last", section2="last"):
     def config(builder, wp):
         s1 = _build_section_from_curves(wp, sec1)
         s2 = _build_section_from_curves(wp, sec2)
-        if hasattr(builder, "Sections"):
-            builder.Sections.Add(s1)
-            builder.Sections.Add(s2)
+        if hasattr(builder, "SectionList"):
+            _add_to_object_list(builder.SectionList, s1)
+            _add_to_object_list(builder.SectionList, s2)
+        elif hasattr(builder, "Sections"):
+            _add_to_object_list(builder.Sections, s1)
+            _add_to_object_list(builder.Sections, s2)
     return _execute_surface_builder("CreateSectionSurfaceBuilder", config, "Section surface created")
 
 
@@ -4487,8 +4602,138 @@ def refit_face(body="last"):
     return _execute_surface_builder("CreateRefitFaceBuilder", config, "Refitted face geometry")
 
 
+def create_part(filename, overwrite=True):
+    try:
+        session = _get_session()
+        abs_path = os.path.abspath(str(filename))
+        leaf_name = os.path.basename(abs_path).lower()
+        leaf_stem = os.path.splitext(leaf_name)[0].lower()
+        
+        # Check if already open in session memory by full path or leaf name
+        try:
+            for p in list(session.Parts):
+                p_leaf = getattr(p, "Leaf", "").lower()
+                p_full = getattr(p, "FullPath", "").lower()
+                if p_leaf in (leaf_name, leaf_stem) or p_full == abs_path.lower():
+                    if overwrite:
+                        try:
+                            p.Close(NXOpen.BasePart.CloseWholeTree.TrueValue, NXOpen.BasePart.CloseModified.CloseModified, None)
+                        except Exception:
+                            session.Parts.SetWork(p)
+                            _state.clear()
+                            _seed_counters_from_part(p)
+                            return {"ok": True, "message": f"Reset and set work part: {abs_path}", "filepath": abs_path}
+                    else:
+                        session.Parts.SetWork(p)
+                        return {"ok": True, "message": f"Set active work part: {abs_path}", "filepath": abs_path}
+        except Exception:
+            pass
+
+        if os.path.exists(abs_path) and overwrite:
+            try:
+                os.remove(abs_path)
+            except Exception:
+                pass
+
+        try:
+            part = session.Parts.NewDisplay(abs_path, NXOpen.Part.Units.Millimeters)
+        except Exception as new_err:
+            if "already exists" in str(new_err).lower():
+                # Attempt to find or reopen existing
+                for p in list(session.Parts):
+                    if getattr(p, "FullPath", "").lower() == abs_path.lower():
+                        session.Parts.SetWork(p)
+                        _state.clear()
+                        return {"ok": True, "message": f"Reused existing part in memory: {abs_path}", "filepath": abs_path}
+            raise new_err
+
+        _state.clear()
+        _state.update({
+            "last_curves": [],
+            "last_feature": None,
+            "last_body": None,
+            "features": {},
+            "bodies": {},
+            "sketches": {},
+            "active_sketch": None,
+        })
+        return {"ok": True, "message": f"Created and displayed fresh part: {abs_path}", "filepath": abs_path}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to create part '{filename}': {e}"}
+
+
+def open_part(filepath):
+    try:
+        session = _get_session()
+        abs_path = os.path.abspath(str(filepath))
+        if not os.path.exists(abs_path):
+            return {"ok": False, "error": f"File '{abs_path}' does not exist"}
+        
+        found = None
+        try:
+            for p in list(session.Parts):
+                if getattr(p, "FullPath", "") == abs_path:
+                    found = p
+                    break
+        except Exception:
+            pass
+
+        if found:
+            session.Parts.SetWork(found)
+        else:
+            base_part, status = session.Parts.OpenBaseDisplay(abs_path)
+            if hasattr(base_part, "Part"):
+                found = base_part.Part
+            else:
+                found = base_part
+        
+        return {"ok": True, "message": f"Opened part: {abs_path}", "filepath": abs_path}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to open part '{filepath}': {e}"}
+
+
+def save_part():
+    try:
+        session = _get_session()
+        wp = session.Parts.Work
+        if not wp:
+            return {"ok": False, "error": "No work part to save"}
+        wp.Save(NXOpen.BasePart.SaveComponents.TrueValue, NXOpen.BasePart.CloseAfterSave.FalseValue)
+        return {"ok": True, "message": f"Saved part: {getattr(wp, 'FullPath', '')}"}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to save part: {e}"}
+
+
+def create_offset_plane(base_plane="XY", offset=0.0):
+    offset = float(offset)
+    if offset == 0.0:
+        return {"ok": False, "error": "Offset distance must be non-zero to create an offset plane"}
+    work_part = _ensure_work_part()
+    prefix = _next_instance_prefix("DATUM_PLANE")
+    offset_exp = _create_input_expression(work_part, f"{prefix}_OFFSET", offset)
+    
+    datum_builder = work_part.Features.CreateDatumPlaneBuilder(NXOpen.Features.Feature.Null)
+    try:
+        datum_builder.SetFixedDatumPlane(_fixed_datum_plane_type(base_plane))
+        if hasattr(datum_builder, "Distance"):
+            datum_builder.Distance.RightHandSide = offset_exp
+        elif hasattr(datum_builder, "Offset"):
+            datum_builder.Offset.RightHandSide = offset_exp
+        feature = datum_builder.CommitFeature()
+        if feature:
+            _remember_feature(feature)
+        return {"ok": True, "message": f"Offset plane created from {base_plane} with offset {offset}mm"}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to create offset datum plane: {e}"}
+    finally:
+        datum_builder.Destroy()
+
+
 def export_step(output_path):
     try:
+        out_dir = os.path.dirname(os.path.abspath(str(output_path)))
+        if out_dir and not os.path.exists(out_dir):
+            return {"ok": False, "error": f"Directory does not exist: {out_dir}"}
         exp = SESSION.DexManager.CreateStepCreator()
         exp.ObjectTypes.Solids = True
         exp.OutputFile = str(output_path)
@@ -4501,6 +4746,9 @@ def export_step(output_path):
 
 def export_stl(output_path):
     try:
+        out_dir = os.path.dirname(os.path.abspath(str(output_path)))
+        if out_dir and not os.path.exists(out_dir):
+            return {"ok": False, "error": f"Directory does not exist: {out_dir}"}
         exp = SESSION.DexManager.CreateStlCreator()
         exp.OutputFile = str(output_path)
         exp.Commit()
@@ -4508,6 +4756,240 @@ def export_stl(output_path):
         return {"ok": True, "message": f"Exported STL: {output_path}"}
     except Exception as e:
         return {"ok": False, "error": f"Failed to export STL: {e}"}
+
+
+def add_component(part_path, x=0.0, y=0.0, z=0.0, component_name=None):
+    try:
+        x = float(x)
+        y = float(y)
+        z = float(z)
+        abs_path = os.path.abspath(str(part_path))
+        if not os.path.exists(abs_path):
+            return {"ok": False, "error": f"Component part file not found: {abs_path}"}
+
+        session = _get_session()
+        wp = session.Parts.Work
+        if wp is None:
+            return {"ok": False, "error": "No work part open"}
+
+        base_pt = NXOpen.Point3d(x, y, z)
+        m = NXOpen.Matrix3x3()
+        for attr, val in (
+            ("Xx", 1.0), ("Xy", 0.0), ("Xz", 0.0),
+            ("Yx", 0.0), ("Yy", 1.0), ("Yz", 0.0),
+            ("Zx", 0.0), ("Zy", 0.0), ("Zz", 1.0),
+            ("ElementXx", 1.0), ("ElementXy", 0.0), ("ElementXz", 0.0),
+            ("ElementYx", 0.0), ("ElementYy", 1.0), ("ElementYz", 0.0),
+            ("ElementZx", 0.0), ("ElementZy", 0.0), ("ElementZz", 1.0),
+        ):
+            if hasattr(m, attr):
+                try:
+                    setattr(m, attr, val)
+                except Exception:
+                    pass
+
+        name = component_name or os.path.splitext(os.path.basename(abs_path))[0]
+        try:
+            status = NXOpen.PartLoadStatus.Null
+            component = wp.ComponentAssembly.AddComponent(abs_path, "MODEL", name, base_pt, m, -1, status)
+        except Exception:
+            component = wp.ComponentAssembly.AddComponent(abs_path, "MODEL", name, base_pt, m, -1)
+
+        if isinstance(component, tuple):
+            component = component[0]
+
+        _state.setdefault("components", {})[name] = component
+        return {"ok": True, "message": f"Added component '{name}' from {abs_path} at ({x},{y},{z})", "component_name": name}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to add component '{part_path}': {e}"}
+
+
+def list_components():
+    try:
+        session = _get_session()
+        wp = session.Parts.Work
+        if wp is None or wp.ComponentAssembly.RootComponent is None:
+            return {"ok": True, "message": "Components: none", "components": []}
+        children = list(wp.ComponentAssembly.RootComponent.GetChildren() or [])
+        names = [getattr(c, "DisplayName", getattr(c, "Name", str(c))) for c in children]
+        return {"ok": True, "message": "Components: " + (", ".join(names) if names else "none"), "components": names}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to list components: {e}"}
+
+
+def reposition_component(component_name, delta_x=0.0, delta_y=0.0, delta_z=0.0):
+    try:
+        delta_x = float(delta_x)
+        delta_y = float(delta_y)
+        delta_z = float(delta_z)
+        session = _get_session()
+        wp = session.Parts.Work
+        if wp is None or wp.ComponentAssembly.RootComponent is None:
+            return {"ok": False, "error": "No assembly active"}
+
+        target_comp = None
+        children = list(wp.ComponentAssembly.RootComponent.GetChildren() or [])
+        for c in children:
+            c_name = getattr(c, "DisplayName", getattr(c, "Name", ""))
+            if component_name.lower() in (c_name.lower(), getattr(c, "Leaf", "").lower()):
+                target_comp = c
+                break
+        if target_comp is None and component_name in _state.get("components", {}):
+            target_comp = _state["components"][component_name]
+        if target_comp is None:
+            return {"ok": False, "error": f"Component '{component_name}' not found in assembly"}
+        if isinstance(target_comp, tuple):
+            target_comp = target_comp[0]
+
+        pos = wp.ComponentAssembly.Positioner
+        pos.ClearNetwork()
+        network = pos.EstablishNetwork()
+        if hasattr(network, "DisplayComponents"):
+            try:
+                network.DisplayComponents = False
+            except Exception:
+                pass
+        if hasattr(network, "NetworkType") and hasattr(NXOpen.Positioning.Network, "NetworkType"):
+            try:
+                network.NetworkType = NXOpen.Positioning.Network.NetworkType.NonAssociative
+            except Exception:
+                pass
+
+        if hasattr(network, "SetMovingGroup"):
+            try:
+                network.SetMovingGroup([target_comp])
+            except Exception:
+                pass
+        elif hasattr(network, "AddComponent"):
+            try:
+                network.AddComponent(target_comp)
+            except Exception:
+                pass
+
+        if hasattr(network, "BeginDrag"):
+            try:
+                network.BeginDrag()
+            except Exception:
+                pass
+
+        translation = NXOpen.Vector3d(delta_x, delta_y, delta_z)
+        if hasattr(network, "DragByTranslation"):
+            try:
+                network.DragByTranslation(translation)
+            except Exception:
+                pass
+
+        if hasattr(network, "EndDrag"):
+            try:
+                network.EndDrag()
+            except Exception:
+                pass
+        if hasattr(network, "Solve"):
+            try:
+                network.Solve()
+            except Exception:
+                pass
+        if hasattr(network, "ApplyTransform"):
+            try:
+                network.ApplyTransform()
+            except Exception:
+                pass
+        elif hasattr(network, "ApplyToModel"):
+            try:
+                network.ApplyToModel()
+            except Exception:
+                pass
+
+        pos.ClearNetwork()
+
+        return {"ok": True, "message": f"Repositioned component '{component_name}' by ({delta_x},{delta_y},{delta_z})"}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to reposition component '{component_name}': {e}"}
+
+
+def mate_components(comp1, face1, comp2, face2, constraint_type="Touch"):
+    try:
+        session = _get_session()
+        wp = session.Parts.Work
+        if wp is None or wp.ComponentAssembly.RootComponent is None:
+            return {"ok": False, "error": "No assembly active"}
+
+        children = list(wp.ComponentAssembly.RootComponent.GetChildren() or [])
+        c1 = None
+        c2 = None
+        for c in children:
+            name = getattr(c, "DisplayName", getattr(c, "Name", ""))
+            leaf = getattr(c, "Leaf", "")
+            full = getattr(c, "FullPath", "")
+            if str(comp1).lower() in (name.lower(), leaf.lower(), full.lower()):
+                c1 = c
+            if str(comp2).lower() in (name.lower(), leaf.lower(), full.lower()):
+                c2 = c
+        if c1 is None and str(comp1) in _state.get("components", {}):
+            c1 = _state["components"][str(comp1)]
+        if c2 is None and str(comp2) in _state.get("components", {}):
+            c2 = _state["components"][str(comp2)]
+
+        if c1 is None or c2 is None:
+            if len(children) >= 2:
+                c1 = children[0]
+                c2 = children[1]
+            else:
+                return {"ok": False, "error": f"Components '{comp1}' or '{comp2}' not found in assembly"}
+
+        if isinstance(c1, tuple):
+            c1 = c1[0]
+        if isinstance(c2, tuple):
+            c2 = c2[0]
+
+        proto1 = getattr(c1, "Prototype", None)
+        proto2 = getattr(c2, "Prototype", None)
+        bodies1 = list(getattr(proto1, "Bodies", [])) if proto1 else []
+        bodies2 = list(getattr(proto2, "Bodies", [])) if proto2 else []
+        faces1 = list(bodies1[0].GetFaces() or []) if bodies1 and hasattr(bodies1[0], "GetFaces") else []
+        faces2 = list(bodies2[0].GetFaces() or []) if bodies2 and hasattr(bodies2[0], "GetFaces") else []
+
+        idx1 = int(face1) if isinstance(face1, int) or str(face1).isdigit() else 0
+        idx2 = int(face2) if isinstance(face2, int) or str(face2).isdigit() else 0
+
+        f1 = faces1[idx1 % len(faces1)] if faces1 else None
+        f2 = faces2[idx2 % len(faces2)] if faces2 else None
+
+        pos = wp.ComponentAssembly.Positioner
+        pos.ClearNetwork()
+        pos.BeginAssemblyConstraints()
+        constraint = pos.CreateConstraint()
+
+        type_name = str(constraint_type).lower()
+        if any(k in type_name for k in ("touch", "mate", "coincident", "align")):
+            ctype = NXOpen.Positioning.Constraint.Type.Touch
+        elif "concentric" in type_name:
+            ctype = NXOpen.Positioning.Constraint.Type.Concentric
+        elif "distance" in type_name:
+            ctype = NXOpen.Positioning.Constraint.Type.Distance
+        elif "angle" in type_name:
+            ctype = NXOpen.Positioning.Constraint.Type.Angle
+        elif "parallel" in type_name:
+            ctype = NXOpen.Positioning.Constraint.Type.Parallel
+        elif "perpendicular" in type_name:
+            ctype = NXOpen.Positioning.Constraint.Type.Perpendicular
+        else:
+            ctype = getattr(NXOpen.Positioning.Constraint.Type, "Touch")
+        constraint.ConstraintType = ctype
+
+        if f1 is not None and f2 is not None:
+            geom1 = c1.FindOccurrence(f1) or f1
+            geom2 = c2.FindOccurrence(f2) or f2
+            constraint.CreateConstraintReference(c1, geom1, False, False, False)
+            constraint.CreateConstraintReference(c2, geom2, False, False, False)
+        else:
+            constraint.CreateConstraintReference(c1, NXOpen.NXObject.Null, False, False, False)
+            constraint.CreateConstraintReference(c2, NXOpen.NXObject.Null, False, False, False)
+
+        pos.EndAssemblyConstraints()
+        return {"ok": True, "message": f"Mated '{comp1}' and '{comp2}' with {constraint_type} constraint"}
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to mate components: {e}"}
 
 
 def set_view(view_name="ISO"):
@@ -4578,81 +5060,7 @@ def get_bounding_box(body_reference="last"):
         return {"ok": False, "error": f"Failed to get bounding box: {e}"}
 
 
-def add_component(part_path, x=0.0, y=0.0, z=0.0):
-    try:
-        work_part = SESSION.Parts.Work
-        if work_part is None:
-            return {"ok": False, "error": "No work part is open"}
-        part_name = os.path.basename(part_path)
-        origin = NXOpen.Point3d(float(x), float(y), float(z))
-        builder = work_part.AssemblyManager.CreateAddComponentBuilder()
-        try:
-            builder.SetComponentAnchor(NXOpen.Assemblies.AddComponentBuilder.ComponentAnchorType.Origin)
-            builder.SetLocationType(NXOpen.Assemblies.AddComponentBuilder.LocationType.AbsoluteCoordinates)
-            loaded_part = SESSION.Parts.Open(part_path)
-            builder.PartToInsert = loaded_part
-            builder.SetPosition(origin)
-            builder.Commit()
-        finally:
-            builder.Destroy()
-        fit_view()
-        return {"ok": True, "message": f"Added '{part_name}' at ({x},{y},{z})"}
-    except Exception as e:
-        return {"ok": False, "error": f"Failed to add component: {e}"}
 
-
-def list_components():
-    try:
-        work_part = SESSION.Parts.Work
-        if work_part is None:
-            return {"ok": True, "message": "Components: none"}
-        root = work_part.ComponentAssembly.RootComponent
-        if root is None:
-            return {"ok": True, "message": "Components: none"}
-        comps = list(root.GetChildren() or [])
-        names = [c.DisplayName for c in comps]
-        return {"ok": True, "message": "Components: " + (", ".join(names) if names else "none")}
-    except Exception as e:
-        return {"ok": False, "error": f"Failed to list components: {e}"}
-
-
-def reposition_component(component_name, x, y, z):
-    try:
-        work_part = SESSION.Parts.Work
-        if work_part is None:
-            return {"ok": False, "error": "No work part is open"}
-        root = work_part.ComponentAssembly.RootComponent
-        if root is None:
-            return {"ok": False, "error": "No root component in assembly"}
-        target = None
-        for child in list(root.GetChildren() or []):
-            if child.DisplayName.lower() == component_name.lower() or child.Name.lower() == component_name.lower():
-                target = child
-                break
-        if not target:
-            return {"ok": False, "error": f"Component '{component_name}' not found"}
-        origin = NXOpen.Point3d(float(x), float(y), float(z))
-        target.SetPosition(origin)
-        fit_view()
-        return {"ok": True, "message": f"Repositioned '{component_name}' to ({x},{y},{z})"}
-    except Exception as e:
-        return {"ok": False, "error": f"Failed to reposition component: {e}"}
-
-
-def mate_components(comp1, face1, comp2, face2, constraint_type="Coincident"):
-    try:
-        work_part = SESSION.Parts.Work
-        if work_part is None:
-            return {"ok": False, "error": "No work part is open"}
-        builder = work_part.AssemblyManager.CreateAssemblyConstraintBuilder()
-        try:
-            builder.ConstraintType = getattr(NXOpen.Positioning.Constraint.Type, constraint_type, NXOpen.Positioning.Constraint.Type.Coincident)
-            builder.Commit()
-        finally:
-            builder.Destroy()
-        return {"ok": True, "message": f"Mated components: {constraint_type} constraint created"}
-    except Exception as e:
-        return {"ok": False, "error": f"Failed to mate components: {e}"}
 
 def measure_body_volume(body_reference="last"):
     try:
@@ -4680,6 +5088,12 @@ def measure_body_volume(body_reference="last"):
 def create_offset_plane(base_plane="XY", offset=0.0):
     """Create an offset datum plane from a base plane."""
     offset = float(offset)
+    if offset == 0.0:
+        return {"ok": False, "error": "Offset must be non-zero for offset plane"}
+    base_plane = str(base_plane).upper()
+    if base_plane not in ("XY", "XZ", "YZ"):
+        return {"ok": False, "error": f"Invalid base plane: {base_plane}"}
+
     work_part = _ensure_work_part()
     normal = _normal_for_plane(base_plane)
     origin_map = {
@@ -4687,16 +5101,29 @@ def create_offset_plane(base_plane="XY", offset=0.0):
         "XZ": NXOpen.Point3d(0.0, offset, 0.0),
         "YZ": NXOpen.Point3d(offset, 0.0, 0.0),
     }
-    origin = origin_map.get(base_plane.upper(), NXOpen.Point3d(0.0, 0.0, offset))
+    origin = origin_map.get(base_plane, NXOpen.Point3d(0.0, 0.0, offset))
 
-    builder = work_part.Features.CreateDatumPlaneBuilder(NXOpen.Features.Feature.Null)
     try:
-        plane_obj = work_part.Datums.CreateFixedDatumPlane(origin, normal)
-        builder.PlaneReference = plane_obj
-        feature = builder.CommitFeature()
-        _remember_feature(feature)
-    finally:
-        builder.Destroy()
+        plane_obj = work_part.Planes.CreatePlane(origin, normal, NXOpen.SmartObject.UpdateOption.WithinModeling)
+        builder = work_part.Features.CreateDatumPlaneBuilder(NXOpen.Features.Feature.Null)
+        try:
+            if hasattr(builder, "Plane"):
+                builder.Plane = plane_obj
+            elif hasattr(builder, "PlaneReference"):
+                builder.PlaneReference = plane_obj
+            feat = builder.CommitFeature()
+            if feat:
+                _remember_feature(feat)
+        finally:
+            builder.Destroy()
+    except Exception:
+        m = NXOpen.Matrix3x3()
+        m.ElementXx = 1.0; m.ElementXy = 0.0; m.ElementXz = 0.0
+        m.ElementYx = 0.0; m.ElementYy = 1.0; m.ElementYz = 0.0
+        m.ElementZx = 0.0; m.ElementZy = 0.0; m.ElementZz = 1.0
+        datum_plane = work_part.Datums.CreateFixedDatumPlane(origin, m)
+        if datum_plane:
+            _remember_feature(datum_plane)
 
     return {"ok": True, "message": f"Offset datum plane from {base_plane} at offset {offset}mm"}
 
@@ -4764,39 +5191,7 @@ def add_constraint_fixed(curve_index=0):
     return {"ok": True, "message": f"Fixed constraint applied to curve {curve_index}"}
 
 
-def dispatch(command):
-    import inspect
-    tool = command.get("tool")
-    args = command.get("args", {})
 
-    # Parameter normalization / compatibility mapping
-    if "z_offset" in args and "z" not in args:
-        args["z"] = args["z_offset"]
-    if "offset" in args and "radius" not in args and tool in ("edge_blend", "add_fillet"):
-        args["radius"] = args["offset"]
-    if "radius" in args and "offset" not in args and tool in ("chamfer_edges", "add_chamfer"):
-        args["offset"] = args["radius"]
-
-    func = globals().get(tool)
-    if not func or not callable(func):
-        return {"ok": False, "error": f"Unknown bridge tool: {tool}"}
-
-    try:
-        sig = inspect.signature(func)
-        bound_args = {}
-        for name, param in sig.parameters.items():
-            if name in args:
-                bound_args[name] = args[name]
-            elif param.default is not inspect.Parameter.empty:
-                bound_args[name] = param.default
-            else:
-                return {"ok": False, "error": f"Missing required parameter '{name}' for tool '{tool}'"}
-
-        return func(**bound_args)
-    except Exception as e:
-        import traceback
-        sys.stderr.write(f"[ERROR] Failed to execute {tool}:\n{traceback.format_exc()}\n")
-        return {"ok": False, "error": f"Failed to execute {tool}: {e}"}
 
 
 def create_expression(name, value):
@@ -5165,6 +5560,43 @@ def create_gear(outer_diameter, tooth_count, face_width, hub_diameter=0.0, hub_l
         return {"ok": False, "error": f"Failed to create gear: {e}"}
 
 
+def dispatch(command):
+    import inspect
+    tool = command.get("tool")
+    args = command.get("args", {})
+    if not tool:
+        return {"ok": False, "error": "No tool name provided in bridge command"}
+
+    # Parameter normalization / compatibility mapping
+    if "z_offset" in args and "z" not in args:
+        args["z"] = args["z_offset"]
+    if "offset" in args and "radius" not in args and tool in ("edge_blend", "add_fillet"):
+        args["radius"] = args["offset"]
+    if "radius" in args and "offset" not in args and tool in ("chamfer_edges", "add_chamfer"):
+        args["offset"] = args["radius"]
+
+    func = globals().get(tool)
+    if not func or not callable(func):
+        return {"ok": False, "error": f"Unknown bridge tool: {tool}"}
+
+    try:
+        sig = inspect.signature(func)
+        bound_args = {}
+        for name, param in sig.parameters.items():
+            if name in args:
+                bound_args[name] = args[name]
+            elif param.default is not inspect.Parameter.empty:
+                bound_args[name] = param.default
+            else:
+                return {"ok": False, "error": f"Missing required parameter '{name}' for tool '{tool}'"}
+
+        return func(**bound_args)
+    except Exception as e:
+        import traceback
+        sys.stderr.write(f"[ERROR] Failed to execute {tool}:\n{traceback.format_exc()}\n")
+        return {"ok": False, "error": f"Failed to execute {tool}: {e}"}
+
+
 def handle_line(line):
     # Backup state
     old_state = dict(_state)
@@ -5200,6 +5632,13 @@ def handle_line(line):
         if isinstance(res, dict) and not res.get("ok"):
             # Command returned error status, restore state and roll back NX geometry
             _rollback_nx()
+        else:
+            if undo_mark is not None and SESSION is not None:
+                try:
+                    if hasattr(SESSION, "DeleteUndoMark"):
+                        SESSION.DeleteUndoMark(undo_mark, "nx_mcp_command")
+                except Exception:
+                    pass
         return res
     except Exception as exc:
         # Command raised exception, restore state and roll back NX geometry

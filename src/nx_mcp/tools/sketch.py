@@ -1,4 +1,5 @@
 import os
+from typing import Literal
 
 from ..bridge import runner
 from ..tools.registry import mcp_tool
@@ -172,12 +173,16 @@ def create_offset_linkage_arm(output_path: str = ""):
 
 
 @mcp_tool("create_offset_plane", "Create an offset datum plane from XY, XZ, or YZ plane")
-def create_offset_plane(base_plane: str = "XY", offset: float = 0.0):
+def create_offset_plane(base_plane: str = "XY", offset: float = 10.0):
+    offset = float(offset)
+    if offset == 0.0:
+        return ToolError("Offset distance must be non-zero to create an offset plane")
     try:
         if not _use_mock_nxopen():
             return _bridge_result(runner.call_nx("create_offset_plane", {"base_plane": base_plane, "offset": offset}))
         return ToolResult(f"Offset plane created from {base_plane} with offset {offset}")
-    except Exception as e: return ToolError(str(e))
+    except Exception as e:
+        return ToolError(str(e))
 
 
 @mcp_tool("add_constraint_horizontal", "Add a horizontal constraint to a sketch curve by index (0-based)")
@@ -205,4 +210,70 @@ def add_constraint_fixed(curve_index: int = 0):
             return _bridge_result(runner.call_nx("add_constraint_fixed", {"curve_index": curve_index}))
         return ToolResult(f"Added fixed constraint to curve {curve_index}")
     except Exception as e: return ToolError(str(e))
+
+
+@mcp_tool(
+    "draw_spline",
+    "Draw a spline curve passing through 2D or 3D interpolation points. Points can be [[x,y],...] or [{'x':..,'y':..},...].",
+)
+def draw_spline(points: list, degree: int = 3, closed: bool = False, plane: str = "active"):
+    try:
+        if not points or len(points) < 2:
+            return ToolError("Spline requires at least 2 points")
+        if not _use_mock_nxopen():
+            return _bridge_result(
+                runner.call_nx(
+                    "draw_spline",
+                    {"points": points, "degree": degree, "closed": closed, "plane": plane},
+                )
+            )
+        return ToolResult(f"Spline with {len(points)} points created (mock mode)")
+    except Exception as e:
+        return ToolError(str(e))
+
+
+@mcp_tool(
+    "offset_curve",
+    "Offset a spline curve with variable offset width from start_width to end_width.",
+)
+def offset_curve(start_width: float, end_width: float, curve_reference: str = "last"):
+    try:
+        start_width = float(start_width)
+        end_width = float(end_width)
+        if not _use_mock_nxopen():
+            return _bridge_result(
+                runner.call_nx(
+                    "offset_curve",
+                    {
+                        "start_width": start_width,
+                        "end_width": end_width,
+                        "curve_reference": curve_reference,
+                    },
+                )
+            )
+        return ToolResult(f"Offset curve created (width {start_width}->{end_width})")
+    except Exception as e:
+        return ToolError(str(e))
+
+
+@mcp_tool(
+    "close_curve_region",
+    "Bridge or connect end points of two curves to create a closed profile.",
+)
+def close_curve_region(
+    curve2: str,
+    curve1: str = "last",
+    method: Literal["tangent_lines", "straight_lines"] = "tangent_lines",
+):
+    try:
+        if not _use_mock_nxopen():
+            return _bridge_result(
+                runner.call_nx(
+                    "close_curve_region",
+                    {"curve2": curve2, "curve1": curve1, "method": method},
+                )
+            )
+        return ToolResult(f"Closed curve region using {method}")
+    except Exception as e:
+        return ToolError(str(e))
 
