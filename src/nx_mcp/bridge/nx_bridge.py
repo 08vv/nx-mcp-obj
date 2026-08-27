@@ -2876,6 +2876,7 @@ def pattern_feature(feature_name="last", direction="X", count=3, pitch=10.0):
         return {"ok": False, "error": "This NXOpen API has no supported feature pattern builder"}
 
     builder = builder_factory(NXOpen.Features.Feature.Null)
+    pre_bodies = list(_iter_bodies(work_part))
     try:
         if hasattr(builder, "FeatureList"):
             builder.FeatureList.Add([source_feature])
@@ -2904,7 +2905,21 @@ def pattern_feature(feature_name="last", direction="X", count=3, pitch=10.0):
                 service.Direction = nx_direction
 
         feature = builder.CommitFeature()
-        _remember_feature(feature)
+        fid = _register_feature(feature)
+        
+        post_bodies = list(_iter_bodies(work_part))
+        pattern_bodies = []
+        for b in post_bodies:
+            if b not in pre_bodies:
+                pattern_bodies.append(_register_body(b))
+        if not pattern_bodies:
+            try:
+                get_bodies = getattr(feature, "GetBodies", None)
+                if callable(get_bodies):
+                    for b in get_bodies() or []:
+                        pattern_bodies.append(_register_body(b))
+            except Exception:
+                pass
     finally:
         builder.Destroy()
 
@@ -2912,6 +2927,9 @@ def pattern_feature(feature_name="last", direction="X", count=3, pitch=10.0):
     return {
         "ok": True,
         "message": f"Pattern '{_feature_name(source_feature)}' {count}x @ {pitch}mm along {direction}",
+        "feature_id": fid,
+        "body_ids": pattern_bodies,
+        "body_id": pattern_bodies[0] if pattern_bodies else _state.get("object_to_id", {}).get(getattr(_state.get("last_body"), "Tag", None), "body_1"),
     }
 
 
@@ -3382,6 +3400,7 @@ def pattern_circular(
         return {"ok": False, "error": "CreatePatternFeatureBuilder not available in this NX version"}
 
     builder = builder_factory(NXOpen.Features.Feature.Null)
+    pre_bodies = list(_iter_bodies(work_part))
     try:
         # Add source feature
         if hasattr(builder, "FeatureList"):
@@ -3452,7 +3471,21 @@ def pattern_circular(
                     service.Direction = nx_dir
 
         feature = builder.CommitFeature()
-        _remember_feature(feature)
+        fid = _register_feature(feature)
+        
+        post_bodies = list(_iter_bodies(work_part))
+        pattern_bodies = []
+        for b in post_bodies:
+            if b not in pre_bodies:
+                pattern_bodies.append(_register_body(b))
+        if not pattern_bodies:
+            try:
+                get_bodies = getattr(feature, "GetBodies", None)
+                if callable(get_bodies):
+                    for b in get_bodies() or []:
+                        pattern_bodies.append(_register_body(b))
+            except Exception:
+                pass
     finally:
         builder.Destroy()
 
@@ -3463,6 +3496,9 @@ def pattern_circular(
             f"Circular pattern '{_feature_name(source_feature)}' "
             f"{count}x over {angle_total}° about {resolved_axis}"
         ),
+        "feature_id": fid,
+        "body_ids": pattern_bodies,
+        "body_id": pattern_bodies[0] if pattern_bodies else _state.get("object_to_id", {}).get(getattr(_state.get("last_body"), "Tag", None), "body_1"),
     }
 
 
