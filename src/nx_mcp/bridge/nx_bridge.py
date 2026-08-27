@@ -75,12 +75,21 @@ def _get_uf():
 ACTIVE_SKETCH_PLANE = "XY"
 _state = {
     "last_curves": [],
+    "curve_history": [],
     "last_feature": None,
     "last_body": None,
     "features": {},
     "bodies": {},
     "sketches": {},
+    "curves": {},
+    "components": {},
     "active_sketch": None,
+    "body_counter": 0,
+    "feature_counter": 0,
+    "sketch_counter": 0,
+    "curve_counter": 0,
+    "id_map": {},
+    "object_to_id": {},
 }
 
 
@@ -375,7 +384,7 @@ def _remember_feature(feature):
             bodies = get_bodies() or []
             if bodies:
                 body = bodies[0]
-                _remember_body(body)
+                _register_body(body)
         except Exception:
             pass
 
@@ -402,11 +411,10 @@ def _remember_feature(feature):
             elif "Face" in type_name and ent_tag not in delta_face_tags:
                 delta_face_tags.append(ent_tag)
 
-    _state["features"][name.lower()] = {
-        "feature": feature,
-        "edge_tags": delta_edge_tags,
-        "face_tags": delta_face_tags,
-    }
+    fid = _register_feature(feature)
+    _state["features"][fid]["edge_tags"] = delta_edge_tags
+    _state["features"][fid]["face_tags"] = delta_face_tags
+    _state["features"][name.lower()] = _state["features"][fid]
 
     _state["pre_body_edges"] = post_edge_tags
     _state["pre_body_faces"] = post_face_tags
@@ -414,13 +422,112 @@ def _remember_feature(feature):
     return feature
 
 
-def _remember_body(body):
+def _register_body(body):
     if body is None:
-        return body
-    name = _body_name(body)
+        return None
+    tag = getattr(body, "Tag", None)
+    if tag and tag in _state.get("object_to_id", {}):
+        return _state["object_to_id"][tag]
+
+    _state["body_counter"] = _state.get("body_counter", 0) + 1
+    body_id = f"body_{_state['body_counter']}"
+    _state.setdefault("id_map", {})[body_id] = body
+    _state.setdefault("bodies", {})[body_id] = body
+    if tag:
+        _state.setdefault("object_to_id", {})[tag] = body_id
     _state["last_body"] = body
+    name = _body_name(body)
     _state["bodies"][name.lower()] = body
-    return body
+    return body_id
+
+
+def _remember_body(body):
+    return _register_body(body)
+
+
+def _register_feature(feature):
+    if feature is None:
+        return None
+    tag = getattr(feature, "Tag", None)
+    if tag and tag in _state.get("object_to_id", {}):
+        return _state["object_to_id"][tag]
+
+    _state["feature_counter"] = _state.get("feature_counter", 0) + 1
+    feature_id = f"feature_{_state['feature_counter']}"
+    _state.setdefault("id_map", {})[feature_id] = feature
+    if tag:
+        _state.setdefault("object_to_id", {})[tag] = feature_id
+    _state["last_feature"] = feature
+
+    name = _feature_name(feature)
+    feat_entry = {
+        "feature": feature,
+        "edge_tags": [],
+        "face_tags": [],
+    }
+    _state.setdefault("features", {})[feature_id] = feat_entry
+    _state["features"][name.lower()] = feat_entry
+
+    try:
+        get_bodies = getattr(feature, "GetBodies", None)
+        if callable(get_bodies):
+            for b in get_bodies() or []:
+                _register_body(b)
+    except Exception:
+        pass
+
+    return feature_id
+
+
+def _register_sketch(plane, sketch_obj=None):
+    _state["sketch_counter"] = _state.get("sketch_counter", 0) + 1
+    sketch_id = f"sketch_{_state['sketch_counter']}"
+    val = sketch_obj if sketch_obj is not None else plane
+    _state.setdefault("id_map", {})[sketch_id] = val
+    _state.setdefault("sketches", {})[sketch_id] = val
+    _state["active_sketch"] = sketch_id
+    return sketch_id
+
+
+def _register_curve(curve):
+    if curve is None:
+        return None
+    tag = getattr(curve, "Tag", None)
+    if tag and tag in _state.get("object_to_id", {}):
+        return _state["object_to_id"][tag]
+
+    _state["curve_counter"] = _state.get("curve_counter", 0) + 1
+    curve_id = f"curve_{_state['curve_counter']}"
+    _state.setdefault("id_map", {})[curve_id] = curve
+    _state.setdefault("curves", {})[curve_id] = curve
+    if tag:
+        _state.setdefault("object_to_id", {})[tag] = curve_id
+    return curve_id
+
+
+def _seed_counters_from_part(work_part):
+    _state["body_counter"] = 0
+    _state["feature_counter"] = 0
+    _state["sketch_counter"] = 0
+    _state["curve_counter"] = 0
+    _state["id_map"] = {}
+    _state["object_to_id"] = {}
+    _state["bodies"] = {}
+    _state["features"] = {}
+    _state["sketches"] = {}
+    _state["curves"] = {}
+    _state["curve_history"] = []
+    _state["last_curves"] = []
+    _state["last_body"] = None
+    _state["last_feature"] = None
+
+    if work_part is None:
+        return
+
+    for f in _iter_features(work_part):
+        _register_feature(f)
+    for b in _iter_bodies(work_part):
+        _register_body(b)
 
 
 def _iter_features(work_part):
@@ -458,19 +565,28 @@ def _resolve_feature(reference="last"):
             return reference
     work_part = _ensure_work_part()
     ref = str(reference or "last").strip().lower()
+
+    if ref in _state.get("id_map", {}) and (hasattr(_state["id_map"][ref], "GetFeatureName") or "Feature" in type(_state["id_map"][ref]).__name__):
+        return _state["id_map"][ref]
+
     if ref in {"last", "previous", "previous feature", "last feature", "last_created"}:
         feature = _state.get("last_feature")
         if feature is not None:
             return feature
 
-    if ref in _state["features"]:
+    if ref.startswith("feature_"):
+        if ref in _state.get("features", {}):
+            val = _state["features"][ref]
+            return val["feature"] if isinstance(val, dict) and "feature" in val else val
+
+    if ref in _state.get("features", {}):
         val = _state["features"][ref]
         return val["feature"] if isinstance(val, dict) and "feature" in val else val
 
     for feature in _iter_features(work_part):
         name = _feature_name(feature).lower()
         if name not in _state["features"]:
-            _state["features"][name] = feature
+            _register_feature(feature)
         if ref == name or ref in name:
             return feature
 
@@ -483,15 +599,22 @@ def _resolve_body(reference="last"):
             return reference
     work_part = _ensure_work_part()
     ref = str(reference or "last").strip().lower()
+
+    if ref in _state.get("id_map", {}) and hasattr(_state["id_map"][ref], "GetEdges"):
+        return _state["id_map"][ref]
+
     if ref in {"last", "last body", "last_created", "last created body", "target"}:
         body = _state.get("last_body")
         if body is not None:
             return body
         bodies = _iter_bodies(work_part)
         if bodies:
-            return _remember_body(bodies[-1])
+            _register_body(bodies[-1])
+            return bodies[-1]
 
     if ref.startswith("body_"):
+        if ref in _state.get("bodies", {}):
+            return _state["bodies"][ref]
         suffix = ref[5:].strip()
         if suffix.isdigit():
             idx = int(suffix) - 1
@@ -499,7 +622,7 @@ def _resolve_body(reference="last"):
             if 0 <= idx < len(bodies):
                 return bodies[idx]
 
-    if ref in _state["bodies"]:
+    if ref in _state.get("bodies", {}):
         return _state["bodies"][ref]
 
     bodies = _iter_bodies(work_part)
@@ -510,7 +633,8 @@ def _resolve_body(reference="last"):
             return body
 
     if len(bodies) == 1 and ref in {"", "body", "solid", "work"}:
-        return _remember_body(bodies[0])
+        _register_body(bodies[0])
+        return bodies[0]
 
     raise SelectionError(f"Could not resolve body reference: {reference}")
 
@@ -1008,10 +1132,18 @@ def _update_result_files(filepath):
         sys.stderr.write(f"[WARN] _update_result_files failed: {e}\n")
 
 
-def create_part(filename, overwrite=True):
+def ping():
+    return {"ok": True, "message": "pong"}
+
+
+def create_part(filename=None, filepath=None, overwrite=True):
     global _counters_seeded
     import os
-    filepath = os.path.abspath(filename)
+    target_path = filename or filepath
+    if not target_path:
+        return {"ok": False, "error": "Missing required filename for create_part"}
+    filepath = os.path.abspath(target_path)
+    filename = filepath
     
     # 1. If part is already open in session, close it first
     if 'SESSION' in globals() and SESSION and hasattr(SESSION, "Parts"):
@@ -1063,15 +1195,6 @@ def create_part(filename, overwrite=True):
     _counters_seeded = False
     _seed_counters_from_part(work_part)
     _counters_seeded = True
-    
-    _state["last_feature"] = None
-    _state["last_body"] = None
-    _state["last_sketch"] = None
-    _state["last_curves"] = []
-    _state["curve_history"] = []
-    _state["features"] = {}
-    _state["bodies"] = {}
-    _state["sketches"] = {}
     
     fit_view()
     _update_result_files(filepath)
@@ -1181,12 +1304,12 @@ def create_sketch(plane="XY"):
         _state.setdefault("curve_history", []).append(list(_state["last_curves"]))
 
     ACTIVE_SKETCH_PLANE = plane
+    sketch_id = _register_sketch(plane)
     _state["last_curves"] = []
     _state["sketch_origin"] = [0.0, 0.0, 0.0]
     _state["sketch_rotation"] = 0.0
-    _state["active_sketch"] = plane
     _state["profile_start_index"] = len(_state.get("curve_history", []))
-    return {"ok": True, "message": f"Sketch created on {plane} plane"}
+    return {"ok": True, "message": f"Sketch created on {plane} plane", "sketch_id": sketch_id}
 
 
 def _point_on_active_plane(x, y):
@@ -1236,12 +1359,16 @@ def draw_rectangle(x, y, width, height):
                     active_sketch.AddGeometry(line)
                 except Exception:
                     pass
+    cids = [_register_curve(line) for line in lines]
     _state.setdefault("last_curves", []).extend(lines)
+    _state.setdefault("curve_history", []).append(list(lines))
     fit_view()
 
     return {
         "ok": True,
         "message": f"Rectangle {x},{y} size {width}x{height}",
+        "curve_ids": cids,
+        "curve_id": cids[0] if cids else None,
     }
 
 
@@ -1293,9 +1420,11 @@ def draw_circle(cx, cy, radius):
                 active_sketch.AddGeometry(circle)
             except Exception:
                 pass
+    cid = _register_curve(circle)
     _state.setdefault("last_curves", []).append(circle)
+    _state.setdefault("curve_history", []).append([circle])
     fit_view()
-    return {"ok": True, "message": f"Circle {cx},{cy} R={radius}"}
+    return {"ok": True, "message": f"Circle {cx},{cy} R={radius}", "curve_id": cid}
 
 
 def draw_line(x1, y1, x2, y2):
@@ -1318,10 +1447,11 @@ def draw_line(x1, y1, x2, y2):
                 active_sketch.AddGeometry(line)
             except Exception:
                 pass
+    cid = _register_curve(line)
     _state.setdefault("last_curves", []).append(line)
     _state.setdefault("curve_history", []).append([line])
     fit_view()
-    return {"ok": True, "message": f"Line {x1},{y1} to {x2},{y2}"}
+    return {"ok": True, "message": f"Line {x1},{y1} to {x2},{y2}", "curve_id": cid}
 
 
 def draw_arc(cx, cy, radius, start_angle, end_angle):
@@ -1362,10 +1492,11 @@ def draw_arc(cx, cy, radius, start_angle, end_angle):
                 active_sketch.AddGeometry(arc)
             except Exception:
                 pass
+    cid = _register_curve(arc)
     _state.setdefault("last_curves", []).append(arc)
     _state.setdefault("curve_history", []).append([arc])
     fit_view()
-    return {"ok": True, "message": f"Arc {cx},{cy} R={radius} {start_angle} to {end_angle} deg"}
+    return {"ok": True, "message": f"Arc {cx},{cy} R={radius} {start_angle} to {end_angle} deg", "curve_id": cid}
 
 
 def draw_cylinder_profile(outer_radius, inner_radius):
@@ -1450,7 +1581,7 @@ def draw_spline(points, degree=3, closed=False, plane="active"):
             builder.ConstraintManager.Append(gcd)
 
         feature = builder.CommitFeature()
-        _remember_feature(feature)
+        fid = _register_feature(feature)
         spline_curve = feature.GetEntities()[0]
     finally:
         builder.Destroy()
@@ -1465,8 +1596,9 @@ def draw_spline(points, degree=3, closed=False, plane="active"):
             except Exception:
                 pass
 
+    cid = _register_curve(spline_curve)
     _state["last_curves"] = [spline_curve]
-    _state.setdefault("curve_history", []).append(spline_curve)
+    _state.setdefault("curve_history", []).append([spline_curve])
     _state.setdefault("curve_metadata", {})[str(spline_curve.Tag)] = {
         "points": parsed_points,
         "degree": degree,
@@ -1479,6 +1611,8 @@ def draw_spline(points, degree=3, closed=False, plane="active"):
         "ok": True,
         "message": f"Studio spline through {len(parsed_points)} points (degree {degree}, closed={closed})",
         "curve_count": 1,
+        "curve_id": cid,
+        "feature_id": fid,
     }
 
 
@@ -2043,6 +2177,25 @@ def create_offset_linkage_arm(output_path=None):
     }
 
 
+def _current_body_and_feature_ids(feature):
+    fid = _state.get("object_to_id", {}).get(getattr(feature, "Tag", None))
+    if not fid:
+        fid = f"feature_{_state.get('feature_counter', 1)}"
+    bid = None
+    if feature is not None:
+        try:
+            bodies = list(feature.GetBodies() or [])
+            if bodies:
+                bid = _register_body(bodies[0])
+        except Exception:
+            pass
+    if not bid and _state.get("last_body"):
+        bid = _state.get("object_to_id", {}).get(getattr(_state.get("last_body"), "Tag", None))
+    if not bid and _iter_bodies(_ensure_work_part()):
+        bid = _register_body(_iter_bodies(_ensure_work_part())[-1])
+    return bid or "body_1", fid
+
+
 def extrude(distance, start=0, direction="auto"):
     distance = _eval_val(distance)
     start = _eval_val(start)
@@ -2105,9 +2258,10 @@ def extrude(distance, start=0, direction="auto"):
     finally:
         builder.Destroy()
 
+    bid, fid = _current_body_and_feature_ids(feature)
     _state["last_curves"] = []
     fit_view()
-    return {"ok": True, "message": f"Extruded {float(distance)}mm"}
+    return {"ok": True, "message": f"Extruded {float(distance)}mm", "body_id": bid, "feature_id": fid}
 
 
 def create_cuboid(length, width, height, x=0.0, y=0.0, z=0.0):
@@ -2145,10 +2299,13 @@ def create_cuboid(length, width, height, x=0.0, y=0.0, z=0.0):
     finally:
         builder.Destroy()
 
+    bid, fid = _current_body_and_feature_ids(feature)
     fit_view()
     return {
         "ok": True,
         "message": f"Cuboid {length}x{width}x{height}mm at ({x},{y},{z})",
+        "body_id": bid,
+        "feature_id": fid,
     }
 
 
@@ -2197,8 +2354,9 @@ def create_cube(size, x=0.0, y=0.0, z=0.0):
     finally:
         builder.Destroy()
 
+    bid, fid = _current_body_and_feature_ids(feature)
     fit_view()
-    return {"ok": True, "message": f"Cube {size}mm at ({x},{y},{z})"}
+    return {"ok": True, "message": f"Cube {size}mm at ({x},{y},{z})", "body_id": bid, "feature_id": fid}
 
 
 def create_cylinder(radius, height, x=0.0, y=0.0, z=0.0, direction="Z"):
@@ -2231,10 +2389,13 @@ def create_cylinder(radius, height, x=0.0, y=0.0, z=0.0, direction="Z"):
     finally:
         builder.Destroy()
 
+    bid, fid = _current_body_and_feature_ids(feature)
     fit_view()
     return {
         "ok": True,
         "message": f"Cylinder R{radius} height {height} at ({x},{y},{z})",
+        "body_id": bid,
+        "feature_id": fid,
     }
 
 
@@ -2362,9 +2523,10 @@ def _boolean_operation(operation, target="last", tool="last"):
             f"with bounds {_format_bounds(target_body)}. Did you mean to operate on two distinct bodies?"
         )
 
-    _debug_log("debug_unite_run.txt", f"Operation: {operation}\n"
-               f"target input: {target} -> resolved tag: {target_body.Tag if target_body else None}\n"
-               f"tool input: {tool} -> resolved tag: {tool_body.Tag if tool_body else None}\n")
+    target_tag = getattr(target_body, "Tag", None)
+    target_id = _state.get("object_to_id", {}).get(target_tag, "body_1")
+    tool_tag = getattr(tool_body, "Tag", None)
+    tool_id = _state.get("object_to_id", {}).get(tool_tag)
 
     builder = work_part.Features.CreateBooleanBuilder(
         NXOpen.Features.BooleanFeature.Null
@@ -2380,7 +2542,26 @@ def _boolean_operation(operation, target="last", tool="last"):
 
         _set_boolean_inputs(builder, work_part, target_body, [tool_body])
         feature = builder.CommitFeature()
-        _remember_feature(feature)
+        fid = _register_feature(feature)
+
+        if tool_id and tool_id in _state.get("id_map", {}):
+            _state["id_map"].pop(tool_id, None)
+            _state["bodies"].pop(tool_id, None)
+
+        surviving_bodies = _iter_bodies(work_part)
+        if surviving_bodies:
+            surviving = target_body
+            for b in surviving_bodies:
+                if getattr(b, "Tag", None) == target_tag:
+                    surviving = b
+                    break
+            else:
+                surviving = surviving_bodies[-1]
+            _state.setdefault("id_map", {})[target_id] = surviving
+            _state.setdefault("bodies", {})[target_id] = surviving
+            _state["last_body"] = surviving
+            if getattr(surviving, "Tag", None):
+                _state.setdefault("object_to_id", {})[surviving.Tag] = target_id
     except Exception as e:
         target_name = _body_name(target_body)
         tool_name = _body_name(tool_body)
@@ -2397,6 +2578,8 @@ def _boolean_operation(operation, target="last", tool="last"):
     return {
         "ok": True,
         "message": f"Boolean {operation_name}: {_body_name(target_body)} with {_body_name(tool_body)}",
+        "body_id": target_id,
+        "feature_id": fid,
     }
 
 
@@ -3559,12 +3742,27 @@ def _resolve_edge_by_coordinate(body_reference="last", x=0.0, y=0.0, z=0.0):
 
 
 def _resolve_curves(reference="last"):
+    if isinstance(reference, list):
+        return reference
+    if reference is not None and not isinstance(reference, str):
+        return [reference]
+
     ref = str(reference or "last").strip().lower()
+
+    if ref in _state.get("id_map", {}):
+        item = _state["id_map"][ref]
+        if isinstance(item, list):
+            return item
+        if hasattr(item, "GetAllGeometry"):
+            return list(item.GetAllGeometry() or [])
+        return [item]
+
     if ref in ("last", "", "active"):
         curves = _state.get("last_curves", [])
         if not curves:
             raise SelectionError("No active/last curves available in state")
         return curves
+
     if ref in ("previous", "second_to_last", "penultimate"):
         history = _state.get("curve_history", [])
         if len(history) >= 2:
@@ -3572,7 +3770,18 @@ def _resolve_curves(reference="last"):
         if len(history) == 1:
             return history[0]
         raise SelectionError("No previous curves in history")
-    if ref in _state["sketches"]:
+
+    if ref.startswith("curve_") and ref in _state.get("curves", {}):
+        return [_state["curves"][ref]]
+
+    if ref.startswith("sketch_") and ref in _state.get("sketches", {}):
+        sketch_item = _state["sketches"][ref]
+        if hasattr(sketch_item, "GetAllGeometry"):
+            return list(sketch_item.GetAllGeometry() or [])
+        if isinstance(sketch_item, list):
+            return sketch_item
+
+    if ref in _state.get("sketches", {}):
         sketch_feature = _state["sketches"][ref]
         try:
             if hasattr(sketch_feature, "GetAllGeometry"):
@@ -3581,6 +3790,7 @@ def _resolve_curves(reference="last"):
                 return list(sketch_feature.Sketch.GetAllGeometry() or [])
         except Exception:
             pass
+
     try:
         feature = _resolve_feature(reference)
         if hasattr(feature, "GetAllGeometry"):
@@ -3589,6 +3799,7 @@ def _resolve_curves(reference="last"):
             return list(feature.Sketch.GetAllGeometry() or [])
     except Exception:
         pass
+
     raise SelectionError(f"Could not resolve curve reference: '{reference}'")
 
 
@@ -5568,6 +5779,10 @@ def dispatch(command):
         return {"ok": False, "error": "No tool name provided in bridge command"}
 
     # Parameter normalization / compatibility mapping
+    if "filepath" in args and "filename" not in args:
+        args["filename"] = args["filepath"]
+    if "filename" in args and "filepath" not in args:
+        args["filepath"] = args["filename"]
     if "z_offset" in args and "z" not in args:
         args["z"] = args["z_offset"]
     if "offset" in args and "radius" not in args and tool in ("edge_blend", "add_fillet"):
@@ -5603,6 +5818,10 @@ def handle_line(line):
     old_state["features"] = dict(_state.get("features", {}))
     old_state["bodies"] = dict(_state.get("bodies", {}))
     old_state["sketches"] = dict(_state.get("sketches", {}))
+    old_state["curves"] = dict(_state.get("curves", {}))
+    old_state["id_map"] = dict(_state.get("id_map", {}))
+    old_state["object_to_id"] = dict(_state.get("object_to_id", {}))
+    old_state["curve_history"] = list(_state.get("curve_history", []))
     if "last_curves" in _state:
         old_state["last_curves"] = list(_state["last_curves"])
 
