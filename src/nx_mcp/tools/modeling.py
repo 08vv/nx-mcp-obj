@@ -1002,3 +1002,142 @@ def create_gear(
     except Exception as e:
         return ToolError(str(e))
 
+
+@mcp_tool(
+    "extrude_profile",
+    "Extrude a profile by profile_id with distance, direction, and optional boolean operation.",
+)
+def extrude_profile(
+    profile_id: str = "last",
+    distance: float = 10.0,
+    start: float = 0.0,
+    direction: str = "auto",
+    boolean: Literal["none", "unite", "subtract", "intersect"] = "none",
+    target: str = None,
+):
+    """Extrudes an existing 2D profile into a 3D solid feature.
+
+    Args:
+        profile_id (str): Identifier of the profile (e.g. 'profile_1', 'last').
+        distance (float): Extrusion distance in millimeters.
+        start (float): Extrusion start offset in millimeters (default 0.0).
+        direction (str): Extrusion direction vector ('auto', 'X', 'Y', 'Z', '-Z', etc.).
+        boolean (str): Optional boolean operation against target body ('none', 'unite', 'subtract', 'intersect').
+        target (str): Target body identifier (e.g. 'body_1', 'last').
+
+    Returns:
+        ToolResult or ToolError: Result containing the body_id and feature_id.
+    """
+    try:
+        distance = float(distance)
+        start = float(start)
+        if not _use_mock_nxopen():
+            return _bridge_result(
+                runner.call_nx(
+                    "extrude_profile",
+                    {
+                        "profile_id": profile_id,
+                        "distance": distance,
+                        "start": start,
+                        "direction": direction,
+                        "boolean": boolean,
+                        "target": target,
+                    },
+                )
+            )
+        return ToolResult(f"Extruded profile '{profile_id}' {distance}mm")
+    except Exception as e:
+        return ToolError(str(e))
+
+
+@mcp_tool(
+    "loft",
+    "Create a solid loft / through-curves feature through an ordered list of profile sections.",
+)
+def loft(
+    profile_ids: list,
+    guide_curve_ids: list = None,
+    body_type: Literal["solid", "sheet"] = "solid",
+):
+    """Creates a loft / through-curves feature through an ordered list of profiles.
+
+    Args:
+        profile_ids (list): Ordered list of profile identifiers (e.g. ['profile_1', 'profile_2']).
+        guide_curve_ids (list): Optional list of guide curve identifiers.
+        body_type (str): Output geometry type ('solid' or 'sheet').
+
+    Returns:
+        ToolResult or ToolError: Result containing the body_id and feature_id.
+    """
+    try:
+        if not isinstance(profile_ids, list) or len(profile_ids) < 2:
+            return ToolError("loft requires a list of at least 2 profile_ids")
+        if not _use_mock_nxopen():
+            return _bridge_result(
+                runner.call_nx(
+                    "loft",
+                    {
+                        "profile_ids": profile_ids,
+                        "guide_curve_ids": guide_curve_ids,
+                        "body_type": body_type,
+                    },
+                )
+            )
+        return ToolResult(f"Lofted through {len(profile_ids)} profiles")
+    except Exception as e:
+        return ToolError(str(e))
+
+
+@mcp_tool(
+    "pattern",
+    "Unified pattern feature supporting both linear and circular modes.",
+)
+def pattern(
+    feature_ref: str = "last",
+    mode: Literal["linear", "circular"] = "linear",
+    count: int = 4,
+    pitch: float = 10.0,
+    angle_total: float = 360.0,
+    axis: str = "Z",
+    direction: str = "X",
+):
+    """Creates a linear or circular pattern of a target feature.
+
+    Args:
+        feature_ref (str): Target feature to pattern (e.g. 'feature_1', 'last').
+        mode (str): Pattern mode ('linear' or 'circular').
+        count (int): Number of pattern instances (>= 2).
+        pitch (float): Pitch distance in mm (for linear mode).
+        angle_total (float): Total angle in degrees (for circular mode).
+        axis (str): Rotational axis for circular mode ('X', 'Y', 'Z', 'auto').
+        direction (str): Translation direction for linear mode ('X', 'Y', 'Z').
+
+    Returns:
+        ToolResult or ToolError: Result containing feature_id and body_ids.
+    """
+    try:
+        count = int(count)
+        if count < 2:
+            return ToolError("Pattern count must be at least 2")
+        pitch = float(pitch)
+        angle_total = float(angle_total)
+        if not _use_mock_nxopen():
+            return _bridge_result(
+                runner.call_nx(
+                    "pattern",
+                    {
+                        "feature_ref": feature_ref,
+                        "mode": mode,
+                        "count": count,
+                        "pitch": pitch,
+                        "angle_total": angle_total,
+                        "axis": axis,
+                        "direction": direction,
+                    },
+                )
+            )
+        return ToolResult(f"Patterned feature '{feature_ref}' ({mode} mode, {count}x)")
+    except Exception as e:
+        return ToolError(str(e))
+
+

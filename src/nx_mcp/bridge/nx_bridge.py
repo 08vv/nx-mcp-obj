@@ -82,12 +82,14 @@ _state = {
     "bodies": {},
     "sketches": {},
     "curves": {},
+    "profiles": {},
     "components": {},
     "active_sketch": None,
     "body_counter": 0,
     "feature_counter": 0,
     "sketch_counter": 0,
     "curve_counter": 0,
+    "profile_counter": 0,
     "id_map": {},
     "object_to_id": {},
 }
@@ -505,21 +507,38 @@ def _register_curve(curve):
     return curve_id
 
 
+def _register_profile(curves, plane="XY"):
+    if not curves:
+        return None
+    _state["profile_counter"] = _state.get("profile_counter", 0) + 1
+    profile_id = f"profile_{_state['profile_counter']}"
+    _state.setdefault("id_map", {})[profile_id] = list(curves)
+    _state.setdefault("profiles", {})[profile_id] = {
+        "curves": list(curves),
+        "plane": plane,
+    }
+    _state["last_profile"] = list(curves)
+    return profile_id
+
+
 def _seed_counters_from_part(work_part):
     _state["body_counter"] = 0
     _state["feature_counter"] = 0
     _state["sketch_counter"] = 0
     _state["curve_counter"] = 0
+    _state["profile_counter"] = 0
     _state["id_map"] = {}
     _state["object_to_id"] = {}
     _state["bodies"] = {}
     _state["features"] = {}
     _state["sketches"] = {}
     _state["curves"] = {}
+    _state["profiles"] = {}
     _state["curve_history"] = []
     _state["last_curves"] = []
     _state["last_body"] = None
     _state["last_feature"] = None
+    _state["last_profile"] = None
 
     if work_part is None:
         return
@@ -3502,6 +3521,359 @@ def pattern_circular(
     }
 
 
+def create_profile(points, plane="XY", closed=True):
+    """Create an explicit 2D/3D profile from an ordered list of points."""
+    if not isinstance(points, (list, tuple)) or len(points) < 2:
+        return {"ok": False, "error": "create_profile requires a list of at least 2 points"}
+
+    plane_clean = str(plane or "XY").strip().upper()
+    if plane_clean not in {"XY", "XZ", "YZ"}:
+        return {"ok": False, "error": f"Invalid plane '{plane}' for profile (must be XY, XZ, or YZ)"}
+
+    parsed_pts = []
+    for idx, p in enumerate(points):
+        if isinstance(p, dict):
+            p_clean = {str(k).lower(): v for k, v in p.items()}
+            if "x" not in p_clean or "y" not in p_clean:
+                return {"ok": False, "error": f"Point {idx} dict must contain 'x' and 'y'"}
+            x = _eval_val(p_clean["x"])
+            y = _eval_val(p_clean["y"])
+            z = _eval_val(p_clean["z"]) if "z" in p_clean else 0.0
+            parsed_pts.append((x, y, z))
+        elif isinstance(p, (list, tuple)):
+            if len(p) == 2:
+                x = _eval_val(p[0])
+                y = _eval_val(p[1])
+                parsed_pts.append((x, y, 0.0))
+            elif len(p) == 3:
+                x = _eval_val(p[0])
+                y = _eval_val(p[1])
+                z = _eval_val(p[2])
+                parsed_pts.append((x, y, z))
+            else:
+                return {"ok": False, "error": f"Point {idx} must have 2 or 3 coordinates, got {len(p)}"}
+        else:
+            return {"ok": False, "error": f"Point {idx} invalid format: {p}"}
+
+    pt3d_list = []
+    for p in parsed_pts:
+        if p[2] != 0.0:
+            pt3d_list.append(NXOpen.Point3d(float(p[0]), float(p[1]), float(p[2])))
+        else:
+            if plane_clean == "XY":
+                pt3d_list.append(NXOpen.Point3d(float(p[0]), float(p[1]), 0.0))
+            elif plane_clean == "XZ":
+                pt3d_list.append(NXOpen.Point3d(float(p[0]), 0.0, float(p[1])))
+            elif plane_clean == "YZ":
+                pt3d_list.append(NXOpen.Point3d(0.0, float(p[0]), float(p[1])))
+
+    if closed and len(pt3d_list) >= 3:
+        p_first = pt3d_list[0]
+        p_last = pt3d_list[-1]
+        dist_sq = (p_first.X - p_last.X)**2 + (p_first.Y - p_last.Y)**2 + (p_first.Z - p_last.Z)**2
+        if dist_sq > 1e-6:
+            pt3d_list.append(p_first)
+
+    work_part = _ensure_work_part()
+    lines = []
+    for i in range(len(pt3d_list) - 1):
+        line = work_part.Curves.CreateLine(pt3d_list[i], pt3d_list[i + 1])
+        lines.append(line)
+
+    curve_ids = [_register_curve(c) for c in lines]
+    profile_id = _register_profile(lines, plane_clean)
+    _state["last_curves"] = list(lines)
+    _state.setdefault("curve_history", []).append(list(lines))
+    fit_view()
+
+    return {
+        "ok": True,
+        "message": f"Created {'closed' if closed else 'open'} profile '{profile_id}' with {len(lines)} segments on {plane_clean}",
+        "profile_id": profile_id,
+        "curve_ids": curve_ids,
+        "curve_count": len(lines),
+    }
+
+
+def extrude_profile(profile_id="last", distance=10.0, start=0.0, direction="auto", boolean="none", target=None):
+    """Extrude a 2D profile into a 3D solid feature with parametric expressions and optional boolean operation."""
+    distance = _eval_val(distance)
+    start = _eval_val(start)
+    if distance == 0.0:
+        return {"ok": False, "error": "Extrude distance cannot be zero"}
+
+    work_part = _ensure_work_part()
+    curves = _resolve_curves(profile_id)
+    if not curves:
+        return {"ok": False, "error": f"No curves found for profile '{profile_id}'"}
+
+    prefix = _next_instance_prefix("EXTRUDE_PROF")
+    dist_name = _create_input_expression(work_part, f"{prefix}_DIST", distance)
+    start_name = _create_input_expression(work_part, f"{prefix}_START", start)
+
+    builder = work_part.Features.CreateExtrudeBuilder(NXOpen.Features.Feature.Null)
+    try:
+        section = work_part.Sections.CreateSection(0.0095, 0.01, 0.5)
+        rules = [work_part.ScRuleFactory.CreateRuleCurveDumb([c]) for c in curves]
+        section.AddToSection(
+            rules, curves[0],
+            NXOpen.NXObject.Null, NXOpen.NXObject.Null,
+            NXOpen.Point3d(0.0, 0.0, 0.0),
+            NXOpen.Section.Mode.Create,
+            False
+        )
+        builder.Section = section
+        resolved_dir = _resolve_direction(direction)
+        dir_vec = _direction_vector(resolved_dir)
+        origin = NXOpen.Point3d(0.0, 0.0, 0.0)
+        builder.Direction = work_part.Directions.CreateDirection(
+            origin, dir_vec, NXOpen.SmartObject.UpdateOption.WithinModeling
+        )
+        builder.Limits.StartExtend.Value.RightHandSide = start_name
+        builder.Limits.EndExtend.Value.RightHandSide = dist_name
+
+        try:
+            builder.BooleanOperation.SetBooleanOperationAndBody(
+                NXOpen.GeometricUtilities.BooleanOperation.BooleanType.Create,
+                NXOpen.Body.Null,
+            )
+        except Exception:
+            try:
+                builder.BooleanOperation.Type = NXOpen.GeometricUtilities.BooleanOperation.BooleanType.Create
+            except Exception:
+                pass
+
+        feature = builder.CommitFeature()
+        fid = _register_feature(feature)
+    finally:
+        builder.Destroy()
+
+    bid, fid = _current_body_and_feature_ids(feature)
+    
+    bool_op = str(boolean or "none").strip().lower()
+    if bool_op in {"unite", "subtract", "intersect"}:
+        target_ref = target or "last"
+        if target_ref == "last" or target_ref == bid:
+            bodies = _iter_bodies(work_part)
+            other_bodies = [b for b in bodies if _state.get("object_to_id", {}).get(getattr(b, "Tag", None)) != bid]
+            if other_bodies:
+                target_ref = _state.get("object_to_id", {}).get(getattr(other_bodies[-1], "Tag", None), "body_1")
+            else:
+                target_ref = "body_1"
+
+        bool_res = _boolean_operation(bool_op, target=target_ref, tool=bid)
+        if not bool_res.get("ok"):
+            return bool_res
+        bid = bool_res.get("body_id", bid)
+        fid = bool_res.get("feature_id", fid)
+
+    _state["last_curves"] = []
+    fit_view()
+    return {
+        "ok": True,
+        "message": f"Extruded profile '{profile_id}' {distance}mm (body: {bid}, feature: {fid})",
+        "body_id": bid,
+        "feature_id": fid,
+        "profile_id": profile_id,
+    }
+
+
+def loft(profile_ids, guide_curve_ids=None, body_type="solid"):
+    """Create a loft / through-curves feature through an ordered list of profiles."""
+    if not isinstance(profile_ids, (list, tuple)) or len(profile_ids) < 2:
+        return {"ok": False, "error": "loft requires an ordered list of at least 2 profile_ids"}
+
+    work_part = _ensure_work_part()
+    builder = work_part.Features.CreateThroughCurvesBuilder(NXOpen.Features.Feature.Null)
+    try:
+        for idx, pid in enumerate(profile_ids):
+            curves = _resolve_curves(pid)
+            if not curves:
+                return {"ok": False, "error": f"No curves resolved for section {idx} ('{pid}')"}
+            section = work_part.Sections.CreateSection(0.0095, 0.01, 0.5)
+            rules = [work_part.ScRuleFactory.CreateRuleCurveDumb([c]) for c in curves]
+            section.AddToSection(
+                rules, curves[0],
+                NXOpen.NXObject.Null, NXOpen.NXObject.Null,
+                NXOpen.Point3d(0.0, 0.0, 0.0),
+                NXOpen.Section.Mode.Create,
+                False
+            )
+            builder.SectionsList.Append(section)
+
+        btype = str(body_type or "solid").strip().lower()
+        if btype == "sheet":
+            builder.BodyPreference = NXOpen.Features.ThroughCurvesBuilder.BodyPreferenceTypes.Sheet
+        else:
+            builder.BodyPreference = NXOpen.Features.ThroughCurvesBuilder.BodyPreferenceTypes.Solid
+
+        feature = builder.CommitFeature()
+        fid = _register_feature(feature)
+    finally:
+        builder.Destroy()
+
+    bid, fid = _current_body_and_feature_ids(feature)
+    fit_view()
+    return {
+        "ok": True,
+        "message": f"Created loft feature '{fid}' through {len(profile_ids)} sections",
+        "body_id": bid,
+        "feature_id": fid,
+    }
+
+
+def variable_offset(target_ref="last", offset_start=5.0, offset_end=None, law="linear", body="last"):
+    """Offset curves (with constant or variable law) or offset faces by distance."""
+    offset_start = _eval_val(offset_start)
+    work_part = _ensure_work_part()
+
+    try:
+        curves = _resolve_curves(target_ref)
+    except Exception:
+        curves = None
+
+    if curves:
+        prefix = _next_instance_prefix("OFFSET_CRV")
+        start_name = _create_input_expression(work_part, f"{prefix}_START", offset_start)
+        builder = work_part.Features.CreateOffsetCurveBuilder(NXOpen.Features.Feature.Null)
+        try:
+            rules = [work_part.ScRuleFactory.CreateRuleCurveDumb([c]) for c in curves]
+            builder.CurvesToOffset.AddToSection(
+                rules, curves[0],
+                NXOpen.NXObject.Null, NXOpen.NXObject.Null,
+                NXOpen.Point3d(0.0, 0.0, 0.0),
+                NXOpen.Section.Mode.Create,
+                False
+            )
+
+            law_type = str(law or "linear").strip().lower()
+            if offset_end is not None and law_type == "linear":
+                offset_end = _eval_val(offset_end)
+                end_name = _create_input_expression(work_part, f"{prefix}_END", offset_end)
+                builder.LawControl.LawType = NXOpen.GeometricUtilities.LawBuilder.Type.Linear
+                builder.LawControl.StartValue.RightHandSide = start_name
+                builder.LawControl.EndValue.RightHandSide = end_name
+            else:
+                builder.OffsetDistance.RightHandSide = start_name
+
+            feature = builder.CommitFeature()
+            fid = _register_feature(feature)
+            out_curves = list(feature.GetEntities() or [])
+            cids = [_register_curve(c) for c in out_curves]
+            pid = _register_profile(out_curves)
+        finally:
+            builder.Destroy()
+
+        fit_view()
+        return {
+            "ok": True,
+            "message": f"Offset curves by start={offset_start} (feature: {fid}, profile: {pid})",
+            "feature_id": fid,
+            "profile_id": pid,
+            "curve_ids": cids,
+        }
+
+    prefix = _next_instance_prefix("OFFSET_FACE")
+    dist_name = _create_input_expression(work_part, f"{prefix}_DIST", offset_start)
+    target_face = _resolve_face_by_coordinate(body, 0.0, 0.0, 0.0) if target_ref == "last" else target_ref
+    builder = work_part.Features.CreateOffsetFaceBuilder(NXOpen.Features.Feature.Null)
+    try:
+        collector = work_part.ScCollectors.CreateCollector()
+        rule = work_part.ScRuleFactory.CreateRuleFaceDumb([target_face])
+        collector.ReplaceRules([rule], False)
+        builder.FaceCollector = collector
+        builder.Distance.RightHandSide = dist_name
+
+        feature = builder.CommitFeature()
+        fid = _register_feature(feature)
+    finally:
+        builder.Destroy()
+
+    bid, fid = _current_body_and_feature_ids(feature)
+    fit_view()
+    return {
+        "ok": True,
+        "message": f"Offset face by {offset_start}mm (body: {bid}, feature: {fid})",
+        "body_id": bid,
+        "feature_id": fid,
+    }
+
+
+def pattern(feature_ref="last", mode="linear", count=4, pitch=10.0, angle_total=360.0, axis="Z", direction="X"):
+    """Unified pattern tool supporting linear and circular modes."""
+    mode_clean = str(mode or "linear").strip().lower()
+    if mode_clean in {"circular", "radial", "circ"}:
+        return pattern_circular(feature_name=feature_ref, axis=axis, count=count, angle_total=angle_total)
+    elif mode_clean in {"linear", "rect", "rectangular", "lin"}:
+        return pattern_feature(feature_name=feature_ref, direction=direction, count=count, pitch=pitch)
+    else:
+        return {"ok": False, "error": f"Unknown pattern mode '{mode}' (must be 'linear' or 'circular')"}
+
+
+def shell(body_id="last", thickness=2.0, faces_to_remove=None):
+    """Hollow / Shell a solid body with a uniform wall thickness and optional open/removed faces."""
+    thickness = _eval_val(thickness)
+    if thickness <= 0.0:
+        return {"ok": False, "error": "Shell thickness must be positive"}
+
+    work_part = _ensure_work_part()
+    target_body = _resolve_body(body_id)
+    if target_body is None:
+        return {"ok": False, "error": f"Could not resolve body for shell: {body_id}"}
+
+    prefix = _next_instance_prefix("SHELL")
+    thick_name = _create_input_expression(work_part, f"{prefix}_THICK", thickness)
+
+    builder = work_part.Features.CreateShellBuilder(NXOpen.Features.Feature.Null)
+    try:
+        builder.Tolerance = 0.01
+        builder.Body = target_body
+        builder.DefaultThickness.RightHandSide = thick_name
+
+        removed_face_objects = []
+        if faces_to_remove:
+            if isinstance(faces_to_remove, (list, tuple)):
+                for f_spec in faces_to_remove:
+                    if isinstance(f_spec, dict):
+                        f_obj = _resolve_face_by_coordinate(
+                            body_id,
+                            f_spec.get("x", 0.0),
+                            f_spec.get("y", 0.0),
+                            f_spec.get("z", 0.0),
+                        )
+                        removed_face_objects.append(f_obj)
+                    elif hasattr(f_spec, "Tag"):
+                        removed_face_objects.append(f_spec)
+            elif isinstance(faces_to_remove, dict):
+                f_obj = _resolve_face_by_coordinate(
+                    body_id,
+                    faces_to_remove.get("x", 0.0),
+                    faces_to_remove.get("y", 0.0),
+                    faces_to_remove.get("z", 0.0),
+                )
+                removed_face_objects.append(f_obj)
+
+        if removed_face_objects:
+            collector = work_part.ScCollectors.CreateCollector()
+            rule = work_part.ScRuleFactory.CreateRuleFaceDumb(removed_face_objects)
+            collector.ReplaceRules([rule], False)
+            builder.RemovedFacesCollector = collector
+
+        feature = builder.CommitFeature()
+        fid = _register_feature(feature)
+    finally:
+        builder.Destroy()
+
+    bid, fid = _current_body_and_feature_ids(feature)
+    fit_view()
+    return {
+        "ok": True,
+        "message": f"Shelled body '{bid}' with thickness {thickness}mm (feature: {fid})",
+        "body_id": bid,
+        "feature_id": fid,
+    }
+
+
 def edge_blend(radius, body="last", edges="outer_edges"):
     """Fillet edges by semantic selection — thin wrapper over add_fillet."""
     return add_fillet(radius, body, edges)
@@ -4207,7 +4579,7 @@ def patch_openings(body="last", boundary="last"):
     return _execute_surface_builder("CreatePatchOpeningsBuilder", config, "Patched openings on sheet body")
 
 
-def variable_offset(distance_start=2.0, distance_end=5.0, body="last", face_x=0.0, face_y=0.0, face_z=0.0):
+def variable_offset_surface(distance_start=2.0, distance_end=5.0, body="last", face_x=0.0, face_y=0.0, face_z=0.0):
     ds = float(distance_start)
     de = float(distance_end)
     f = _resolve_face_by_coordinate(body, face_x, face_y, face_z)
@@ -5825,6 +6197,14 @@ def dispatch(command):
         args["radius"] = args["offset"]
     if "radius" in args and "offset" not in args and tool in ("chamfer_edges", "add_chamfer"):
         args["offset"] = args["radius"]
+    if "distance_start" in args and "offset_start" not in args:
+        args["offset_start"] = args["distance_start"]
+    if "distance_end" in args and "offset_end" not in args:
+        args["offset_end"] = args["distance_end"]
+    if "body" in args and "target" not in args:
+        args["target"] = args["body"]
+    if "target" in args and "body" not in args:
+        args["body"] = args["target"]
 
     func = globals().get(tool)
     if not func or not callable(func):
@@ -5855,6 +6235,7 @@ def handle_line(line):
     old_state["bodies"] = dict(_state.get("bodies", {}))
     old_state["sketches"] = dict(_state.get("sketches", {}))
     old_state["curves"] = dict(_state.get("curves", {}))
+    old_state["profiles"] = dict(_state.get("profiles", {}))
     old_state["id_map"] = dict(_state.get("id_map", {}))
     old_state["object_to_id"] = dict(_state.get("object_to_id", {}))
     old_state["curve_history"] = list(_state.get("curve_history", []))

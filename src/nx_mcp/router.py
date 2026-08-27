@@ -54,7 +54,7 @@ CATEGORY_TOOLS = {
         "i_form", "match_edge", "edge_symmetry", "global_shaping",
         "global_deformation", "flattening_forming", "heal_surface",
         "edit_uv_direction", "enlarge_face", "snip_into_patches",
-        "smooth_poles", "refit_face",
+        "smooth_poles", "refit_face", "variable_offset",
     ],
     "File Operations": [
         "create_part", "open_part", "save_part", "export_step", "export_stl",
@@ -72,13 +72,14 @@ CATEGORY_TOOLS = {
         "create_rib", "pattern_circular", "edge_blend", "chamfer",
         "revolve_cut", "extrude_cut", "mirror_body_feature",
         "boolean_combine", "split_body", "emboss_body", "create_gear",
+        "extrude_profile", "loft", "pattern", "shell",
     ],
     "Sketch": [
         "create_sketch", "draw_line", "draw_rectangle", "draw_circle",
         "draw_arc", "draw_rounded_rectangle", "create_offset_linkage_arm",
         "create_offset_plane", "add_constraint_horizontal",
         "add_constraint_vertical", "add_constraint_fixed", "draw_spline",
-        "offset_curve", "close_curve_region",
+        "offset_curve", "close_curve_region", "create_profile",
     ],
     "Surface Modeling": [
         "trim_sheet", "extend_sheet", "trim_and_extend", "sew_sheets",
@@ -90,7 +91,7 @@ CATEGORY_TOOLS = {
         "thicken_sheet", "sweep_along_guide", "variational_sweep",
         "create_tube", "swept_volume", "create_ruled", "n_sided_surface",
         "fill_surface", "bounded_plane", "patch_openings",
-        "variable_offset", "sheet_from_curve", "law_extension",
+        "sheet_from_curve", "law_extension",
         "studio_surface", "styled_sweep", "section_surface",
         "aesthetic_face_blend", "bridge_surface", "blend_corner",
         "styled_corner", "four_point_surface", "rapid_surfacing",

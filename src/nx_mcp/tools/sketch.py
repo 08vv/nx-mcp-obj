@@ -277,3 +277,36 @@ def close_curve_region(
     except Exception as e:
         return ToolError(str(e))
 
+
+@mcp_tool(
+    "create_profile",
+    "Create an explicit 2D/3D profile from an ordered list of points with persistent profile_id.",
+)
+def create_profile(
+    points: list,
+    plane: Literal["XY", "XZ", "YZ"] = "XY",
+    closed: bool = True,
+):
+    """Creates a 2D or 3D wireframe profile from an ordered list of points.
+
+    Args:
+        points (list): Ordered list of [x, y] or [x, y, z] coordinate points.
+        plane (str): Sketch plane orientation ('XY', 'XZ', or 'YZ').
+        closed (bool): If True, connects the last point back to the first.
+
+    Returns:
+        ToolResult or ToolError: Result containing the registered profile_id and curve_ids.
+    """
+    try:
+        if not _use_mock_nxopen():
+            return _bridge_result(
+                runner.call_nx(
+                    "create_profile",
+                    {"points": points, "plane": plane, "closed": closed},
+                )
+            )
+        return ToolResult(f"Created profile with {len(points)} points on {plane}")
+    except Exception as e:
+        return ToolError(str(e))
+
+
