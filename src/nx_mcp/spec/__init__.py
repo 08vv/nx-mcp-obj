@@ -2,6 +2,7 @@
 
 from .schema import CADSpec, SpecNode, parse_symbolic_ref, is_symbolic_ref, is_expr_ref, is_calc_ref
 from .validator import validate_spec, ValidationError
+from .executor import SpecExecutor, SpecExecutionError, execute_spec
 
 __all__ = [
     "CADSpec",
@@ -12,4 +13,7 @@ __all__ = [
     "is_calc_ref",
     "validate_spec",
     "ValidationError",
+    "SpecExecutor",
+    "SpecExecutionError",
+    "execute_spec",
 ]

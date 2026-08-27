@@ -103,7 +103,7 @@ CATEGORY_TOOLS = {
     "Utility": [
         "set_view", "fit_view", "reset_nx_bridge", "take_screenshot",
         "list_features", "get_active_part", "get_last_operation_status",
-        "list_feature_edges",
+        "list_feature_edges", "run_recipe", "run_spec",
     ],
 }
 
