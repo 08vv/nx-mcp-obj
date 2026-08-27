@@ -240,8 +240,20 @@ def validate_spec(spec_input: Union[CADSpec, Dict[str, Any]]) -> Dict[str, Any]:
             props = schema.get("properties", {})
             required_params = schema.get("required", [])
 
+            PARAM_ALIASES = {
+                "filename": {"filepath", "path", "file"},
+                "filepath": {"filename", "path", "file"},
+                "target": {"body", "target_body", "body_id"},
+                "body": {"target", "target_body", "body_id"},
+                "body_id": {"target", "body", "target_body"},
+                "feature_name": {"feature_ref", "feature", "feature_id"},
+                "feature_ref": {"feature_name", "feature", "feature_id"},
+                "feature_id": {"feature_name", "feature_ref", "feature"},
+            }
+
             for req in required_params:
-                if req not in node.params:
+                aliases = PARAM_ALIASES.get(req, set())
+                if req not in node.params and not any(a in node.params for a in aliases):
                     errors.append(
                         ValidationError(
                             node.id,
