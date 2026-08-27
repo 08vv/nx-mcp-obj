@@ -11,8 +11,11 @@ NODE_REF_PATTERN = re.compile(r"^\$([a-zA-Z0-9_\-]+)\.([a-zA-Z0-9_]+)$")
 # 2. Expression reference: $expr:NAME (e.g. $expr:CUBOID_1_L)
 EXPR_REF_PATTERN = re.compile(r"^\$expr:([a-zA-Z0-9_]+)$")
 
-# 3. Reserved Calc reference (Phase 5 forward compatibility): $calc:EXPRESSION
+# 3. Calc reference: $calc:EXPRESSION (e.g. $calc:100 / 2 - 5)
 CALC_REF_PATTERN = re.compile(r"^\$calc:(.*)$")
+
+# 4. Function reference: $fn:func_name(args) (e.g. $fn:bolt_circle(count=6, pcd=50))
+FN_REF_PATTERN = re.compile(r"^\$fn:([a-zA-Z_][a-zA-Z0-9_]*)\((.*)\)$", re.DOTALL)
 
 
 def is_symbolic_ref(val: Any) -> bool:
@@ -46,7 +49,7 @@ def parse_expr_ref(val: str) -> Optional[str]:
 
 
 def is_calc_ref(val: Any) -> bool:
-    """Return True if val is a reserved $calc:... reference string."""
+    """Return True if val is a $calc:... reference string."""
     return isinstance(val, str) and bool(CALC_REF_PATTERN.match(val.strip()))
 
 
@@ -60,13 +63,36 @@ def parse_calc_ref(val: str) -> Optional[str]:
     return None
 
 
+def is_fn_ref(val: Any) -> bool:
+    """Return True if val is a $fn:func_name(...) reference string."""
+    return isinstance(val, str) and bool(FN_REF_PATTERN.match(val.strip()))
+
+
+def parse_fn_ref(val: str) -> Optional[Tuple[str, str]]:
+    """Parse a function reference into (func_name, raw_args_string) or None."""
+    if not isinstance(val, str):
+        return None
+    m = FN_REF_PATTERN.match(val.strip())
+    if m:
+        return m.group(1), m.group(2).strip()
+    return None
+
+
 def extract_node_references(data: Any) -> List[Tuple[str, str]]:
-    """Recursively extract all ($node_id, field_name) references from a data structure."""
+    """Recursively extract all ($node_id, field_name) references from a data structure.
+
+    Also extracts node references embedded inside $calc: expressions.
+    """
     refs = []
     if isinstance(data, str):
         ref = parse_symbolic_ref(data)
         if ref:
             refs.append(ref)
+        elif is_calc_ref(data):
+            # Scan inside the calc expression for embedded $nodeId.field refs
+            calc_body = parse_calc_ref(data) or ""
+            for m in NODE_REF_PATTERN.finditer(calc_body):
+                refs.append((m.group(1), m.group(2)))
     elif isinstance(data, dict):
         for v in data.values():
             refs.extend(extract_node_references(v))

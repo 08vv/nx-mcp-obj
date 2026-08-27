@@ -11,9 +11,13 @@ from .schema import (
     extract_node_references,
     is_calc_ref,
     is_expr_ref,
+    is_fn_ref,
     is_symbolic_ref,
     parse_calc_ref,
+    parse_fn_ref,
     parse_symbolic_ref,
+    NODE_REF_PATTERN,
+    EXPR_REF_PATTERN,
 )
 
 # Standard known output fields produced by NX-MCP operations
@@ -230,8 +234,8 @@ def validate_spec(spec_input: Union[CADSpec, Dict[str, Any]]) -> Dict[str, Any]:
                         )
                     )
 
-        # Check $calc syntax well-formedness
-        _validate_calc_refs_recursive(node.id, node.params, errors)
+        # Check $calc/$fn syntax well-formedness and internal ref validity
+        _validate_calc_refs_recursive(node.id, node.params, node_map, topo_pos, errors)
 
         # 5. Param completeness & type checking against ToolRegistry schema
         if node.op in all_tools:
@@ -274,25 +278,112 @@ def validate_spec(spec_input: Union[CADSpec, Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def _validate_calc_refs_recursive(node_id: str, data: Any, errors: List[ValidationError]):
-    """Ensure any $calc:... strings are non-empty and well-formed."""
-    if isinstance(data, str) and is_calc_ref(data):
-        expr = parse_calc_ref(data)
-        if not expr:
-            errors.append(
-                ValidationError(node_id, None, f"Empty or malformed $calc reference '{data}' in node '{node_id}'.")
-            )
+def _validate_calc_refs_recursive(node_id: str, data: Any, node_map: Dict[str, SpecNode], topo_pos: Dict[str, int], errors: List[ValidationError]):
+    """Validate $calc:... and $fn:... references for well-formedness and internal ref validity."""
+    if isinstance(data, str):
+        if is_calc_ref(data):
+            expr = parse_calc_ref(data)
+            if not expr:
+                errors.append(
+                    ValidationError(node_id, None, f"Empty or malformed $calc reference '{data}' in node '{node_id}'.")
+                )
+            else:
+                # Validate embedded $nodeId.field references inside the calc expression
+                for m in NODE_REF_PATTERN.finditer(expr):
+                    target_id, field_name = m.group(1), m.group(2)
+                    if target_id not in node_map:
+                        errors.append(
+                            ValidationError(
+                                node_id, None,
+                                f"$calc expression in node '{node_id}' references non-existent node '{target_id}' via '${target_id}.{field_name}'."
+                            )
+                        )
+                    elif topo_pos.get(target_id, 999999) >= topo_pos.get(node_id, -1):
+                        errors.append(
+                            ValidationError(
+                                node_id, None,
+                                f"$calc expression in node '{node_id}' has illegal forward reference to node '{target_id}'."
+                            )
+                        )
+                    else:
+                        allowed = KNOWN_OP_OUTPUTS.get(node_map[target_id].op, GENERIC_ALLOWED_FIELDS)
+                        if field_name not in allowed:
+                            errors.append(
+                                ValidationError(
+                                    node_id, None,
+                                    f"$calc expression in node '{node_id}' references field '{field_name}' not produced by node '{target_id}' (op: '{node_map[target_id].op}')."
+                                )
+                            )
+                # Validate embedded $expr:NAME references (syntactic only — value requires NX)
+                for m in EXPR_REF_PATTERN.finditer(expr):
+                    pass  # Syntactically valid; runtime resolution via bridge
+        elif is_fn_ref(data):
+            _validate_fn_ref(node_id, data, errors)
     elif isinstance(data, dict):
         for v in data.values():
-            _validate_calc_refs_recursive(node_id, v, errors)
+            _validate_calc_refs_recursive(node_id, v, node_map, topo_pos, errors)
     elif isinstance(data, (list, tuple)):
         for item in data:
-            _validate_calc_refs_recursive(node_id, item, errors)
+            _validate_calc_refs_recursive(node_id, item, node_map, topo_pos, errors)
+
+
+def _validate_fn_ref(node_id: str, val: str, errors: List[ValidationError]):
+    """Validate a $fn:func_name(...) reference for known function and required arguments."""
+    import inspect
+    from .geometry_math import GEOMETRY_FUNCTIONS
+
+    parsed = parse_fn_ref(val)
+    if parsed is None:
+        errors.append(ValidationError(node_id, None, f"Malformed $fn reference '{val}' in node '{node_id}'."))
+        return
+
+    fn_name, raw_args = parsed
+    if fn_name not in GEOMETRY_FUNCTIONS:
+        errors.append(
+            ValidationError(
+                node_id, None,
+                f"Unknown geometry function '{fn_name}' in $fn reference in node '{node_id}'. Known functions: {sorted(GEOMETRY_FUNCTIONS.keys())}."
+            )
+        )
+        return
+
+    fn = GEOMETRY_FUNCTIONS[fn_name]
+    sig = inspect.signature(fn)
+    required_params = [
+        p.name for p in sig.parameters.values()
+        if p.default is inspect.Parameter.empty
+    ]
+
+    # Parse the raw args to check required params are present
+    provided_names = set()
+    if raw_args.strip():
+        for part in raw_args.split(","):
+            part = part.strip()
+            if "=" in part:
+                key = part.split("=", 1)[0].strip()
+                provided_names.add(key)
+            # Positional args count toward required params in order
+
+    # For positional-style calls, count total args
+    positional_count = 0
+    if raw_args.strip():
+        parts = [p.strip() for p in raw_args.split(",")]
+        positional_count = sum(1 for p in parts if "=" not in p)
+
+    # Check required params are satisfied
+    for i, req in enumerate(required_params):
+        if req not in provided_names and i >= positional_count:
+            errors.append(
+                ValidationError(
+                    node_id, None,
+                    f"$fn:{fn_name}(...) in node '{node_id}' is missing required argument '{req}'."
+                )
+            )
 
 
 def _validate_param_type(node_id: str, param_name: str, val: Any, expected_type: Optional[str], errors: List[ValidationError]):
     """Validate literal value type against schema (references bypass type checks as they resolve at runtime)."""
-    if val is None or is_symbolic_ref(val) or is_expr_ref(val) or is_calc_ref(val):
+    if val is None or is_symbolic_ref(val) or is_expr_ref(val) or is_calc_ref(val) or is_fn_ref(val):
         return
 
     if expected_type == "number":

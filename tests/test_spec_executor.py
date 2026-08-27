@@ -90,24 +90,63 @@ def test_execute_spec_atomic_and_symbol_resolution():
     assert "hollow" in report["symbol_table"]
 
 
-def test_calc_reference_execution_rejection():
-    """Phase 4 contract: $calc:... passes validation but is rejected at execution with Phase 5 message."""
+def test_calc_reference_evaluates():
+    """Phase 5: $calc:... expressions are now evaluated by the calc engine."""
     spec_data = {
-        "part_name": "calc_exec_test",
+        "part_name": "calc_eval_test",
         "nodes": [
             {
                 "id": "n1",
                 "op": "create_cuboid",
                 "params": {
                     "length": "$calc:100 * 2",
-                    "width": 50.0,
+                    "width": "$calc:60 / 2 + 5",
                     "height": 20.0,
                 },
             }
         ],
     }
     report = execute_spec(spec_data)
-    assert report["ok"] is False
-    assert report["status"] == "failed"
-    assert report["failed_node"] == "n1"
-    assert "reserved for Phase 5" in report["failure_error"]
+    assert report["ok"] is True
+    assert report["status"] == "completed"
+
+
+def test_fn_bolt_circle_resolves():
+    """Phase 5: $fn:bolt_circle(...) resolves to a list of [x, y] coordinates."""
+    spec_data = {
+        "part_name": "fn_test",
+        "nodes": [
+            {
+                "id": "n1",
+                "op": "create_profile",
+                "params": {
+                    "points": "$fn:bolt_circle(count=4, pcd=100.0)",
+                    "plane": "XY",
+                    "closed": True,
+                },
+            }
+        ],
+    }
+    report = execute_spec(spec_data)
+    assert report["ok"] is True
+    assert report["status"] == "completed"
+
+
+def test_fn_linear_spacing_resolves():
+    """Phase 5: $fn:linear_spacing(...) resolves to a list of [x, y] coordinates."""
+    spec_data = {
+        "part_name": "linear_test",
+        "nodes": [
+            {
+                "id": "n1",
+                "op": "create_profile",
+                "params": {
+                    "points": "$fn:linear_spacing(count=3, pitch=25.0)",
+                    "plane": "XY",
+                },
+            }
+        ],
+    }
+    report = execute_spec(spec_data)
+    assert report["ok"] is True
+

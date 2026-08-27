@@ -9,13 +9,19 @@ from ..tools.registry import ToolRegistry
 from .schema import (
     CADSpec,
     SpecNode,
+    NODE_REF_PATTERN,
+    EXPR_REF_PATTERN,
     is_calc_ref,
     is_expr_ref,
+    is_fn_ref,
     is_symbolic_ref,
     parse_calc_ref,
     parse_expr_ref,
+    parse_fn_ref,
     parse_symbolic_ref,
 )
+from .calc import safe_calc_eval, CalcEvalError
+from .geometry_math import GEOMETRY_FUNCTIONS
 from .validator import validate_spec
 
 
@@ -162,16 +168,54 @@ class SpecExecutor:
                 return target_symbols[field_name]
 
             if is_expr_ref(val):
-                # Pass expression name directly
+                # Pass expression name directly — NX expression value
                 return parse_expr_ref(val)
 
             if is_calc_ref(val):
-                # Phase 5 forward-compatibility reserved contract
                 calc_expr = parse_calc_ref(val)
-                raise SpecExecutionError(
-                    current_node_id,
-                    f"Calculation reference '{val}' is reserved for Phase 5 deterministic math layer and cannot be evaluated in Phase 4."
-                )
+                if not calc_expr:
+                    raise SpecExecutionError(current_node_id, f"Empty $calc expression in '{val}'.")
+                # Pre-resolve any embedded $nodeId.field references inside the calc string
+                resolved_expr = calc_expr
+                for m in NODE_REF_PATTERN.finditer(calc_expr):
+                    ref_str = m.group(0)
+                    target_id, field_name = m.group(1), m.group(2)
+                    if target_id not in self.symbol_table:
+                        raise SpecExecutionError(
+                            current_node_id,
+                            f"Cannot resolve embedded reference '${target_id}.{field_name}' in $calc expression: node '{target_id}' has not produced outputs yet."
+                        )
+                    resolved_val = self.symbol_table[target_id].get(field_name)
+                    if resolved_val is None:
+                        raise SpecExecutionError(
+                            current_node_id,
+                            f"Cannot resolve embedded reference '${target_id}.{field_name}' in $calc expression: field not found."
+                        )
+                    resolved_expr = resolved_expr.replace(f"${ref_str}", str(resolved_val))
+                # Pre-resolve any embedded $expr:NAME references via bridge round-trip
+                for m in EXPR_REF_PATTERN.finditer(resolved_expr):
+                    expr_name = m.group(1)
+                    if not _use_mock_nxopen():
+                        nx_res = runner.call_nx("list_expressions", {})
+                        if nx_res.get("ok") and expr_name in nx_res.get("expressions", {}):
+                            expr_val = nx_res["expressions"][expr_name]
+                            resolved_expr = resolved_expr.replace(f"$expr:{expr_name}", str(expr_val))
+                        else:
+                            raise SpecExecutionError(
+                                current_node_id,
+                                f"Cannot resolve $expr:{expr_name} in $calc expression: expression not found in NX."
+                            )
+                    else:
+                        # Mock mode: treat expr refs as 1.0 placeholder
+                        resolved_expr = resolved_expr.replace(f"$expr:{expr_name}", "1.0")
+
+                try:
+                    return safe_calc_eval(resolved_expr)
+                except CalcEvalError as e:
+                    raise SpecExecutionError(current_node_id, f"$calc evaluation error: {e}")
+
+            if is_fn_ref(val):
+                return self._resolve_fn_ref(val, current_node_id)
 
             return val
 
@@ -182,6 +226,68 @@ class SpecExecutor:
             return [self._resolve_value(item, current_node_id) for item in val]
 
         return val
+
+    def _resolve_fn_ref(self, val: str, current_node_id: str) -> Any:
+        """Resolve a $fn:func_name(...) reference by invoking the geometry math function."""
+        parsed = parse_fn_ref(val)
+        if parsed is None:
+            raise SpecExecutionError(current_node_id, f"Malformed $fn reference: '{val}'")
+
+        fn_name, raw_args = parsed
+        if fn_name not in GEOMETRY_FUNCTIONS:
+            raise SpecExecutionError(
+                current_node_id,
+                f"Unknown geometry function '{fn_name}' in $fn reference."
+            )
+
+        fn = GEOMETRY_FUNCTIONS[fn_name]
+
+        # Parse keyword-style args: "count=6, pcd=50, start_angle_deg=30"
+        kwargs = {}
+        positional_args = []
+        if raw_args.strip():
+            for part in raw_args.split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                if "=" in part:
+                    key, val_str = part.split("=", 1)
+                    key = key.strip()
+                    val_str = val_str.strip()
+                    kwargs[key] = self._parse_fn_arg_value(val_str, current_node_id)
+                else:
+                    positional_args.append(self._parse_fn_arg_value(part, current_node_id))
+
+        try:
+            return fn(*positional_args, **kwargs)
+        except Exception as e:
+            raise SpecExecutionError(
+                current_node_id,
+                f"Error calling $fn:{fn_name}(...): {e}"
+            )
+
+    def _parse_fn_arg_value(self, val_str: str, current_node_id: str) -> Any:
+        """Parse a single argument value from a $fn:... reference string."""
+        val_str = val_str.strip()
+
+        # Try to resolve as symbolic ref
+        if is_symbolic_ref(val_str):
+            return self._resolve_value(val_str, current_node_id)
+
+        # Try to resolve as calc ref
+        if is_calc_ref(val_str):
+            return self._resolve_value(val_str, current_node_id)
+
+        # Try numeric parse
+        try:
+            if "." in val_str:
+                return float(val_str)
+            return int(val_str)
+        except ValueError:
+            pass
+
+        # Return as string
+        return val_str
 
     def _dispatch_tool(self, op: str, params: Dict[str, Any], node_id: str) -> Dict[str, Any]:
         """Dispatch a single tool call via runner.call_nx or mock fallback."""
