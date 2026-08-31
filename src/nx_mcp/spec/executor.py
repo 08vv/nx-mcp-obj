@@ -240,7 +240,73 @@ class SpecExecutor:
 
         return report
 
+    def invalidate_and_rerun(
+        self,
+        node_id: str,
+        new_params: Optional[Dict[str, Any]] = None,
+        pause_after: Union[List[str], str, None] = None,
+        stop_on_error: bool = True,
+        verify_postexecution: bool = True,
+        geometry_check: bool = False,
+        capture_screenshot: bool = False,
+        live_check: bool = True,
+    ) -> Dict[str, Any]:
+        """Selectively re-run a node and its downstream dependents with optional updated parameters."""
+        if node_id not in self.node_map:
+            raise ValueError(f"Node '{node_id}' not found in spec nodes.")
 
+        # Update node parameters if provided
+        if new_params:
+            self.node_map[node_id].params.update(new_params)
+
+        # Re-validate plausibility if parameters changed
+        try:
+            self.plausibility_report = run_plausibility_check(self.spec, strict=False)
+            if not self.plausibility_report["plausible"]:
+                err_msgs = "; ".join(e["message"] for e in self.plausibility_report["errors"])
+                raise ValueError(f"Spec plausibility check failed on re-run: {err_msgs}")
+        except Exception:
+            pass
+
+        # Identify all downstream nodes that depend on node_id
+        invalidated_nodes = {node_id}
+        changed = True
+        while changed:
+            changed = False
+            for nid in self.topological_order:
+                if nid in invalidated_nodes:
+                    continue
+                node = self.node_map[nid]
+                params_str = str(node.params)
+                if any(f"${inv}." in params_str for inv in invalidated_nodes):
+                    invalidated_nodes.add(nid)
+                    changed = True
+
+        # Clear state for all invalidated nodes
+        for inv_id in invalidated_nodes:
+            self.symbol_table.pop(inv_id, None)
+            self.node_results.pop(inv_id, None)
+            if inv_id in self.executed_nodes:
+                self.executed_nodes.remove(inv_id)
+
+        # Reset failed node if it was among invalidated
+        if self.failed_node in invalidated_nodes:
+            self.failed_node = None
+            self.failure_error = None
+
+        # Reset current step index to the index of node_id
+        target_index = self.topological_order.index(node_id)
+        self.current_step_index = target_index
+        self.status = "running"
+
+        return self.execute_all(
+            stop_on_error=stop_on_error,
+            pause_after=pause_after,
+            verify_postexecution=verify_postexecution,
+            geometry_check=geometry_check,
+            capture_screenshot=capture_screenshot,
+            live_check=live_check,
+        )
 
     def _record_node_dependencies(self, node: SpecNode, res: Dict[str, Any], resolved_params: Dict[str, Any]) -> None:
         """Record the execution outcome of a node into the geometry dependency graph."""
@@ -535,5 +601,36 @@ def resume_spec_execution(
         capture_screenshot=capture_screenshot,
         live_check=live_check,
     )
+
+
+def rerun_spec_node(
+    execution_token: str,
+    node_id: str,
+    new_params: Optional[Dict[str, Any]] = None,
+    pause_after: Union[List[str], str, None] = None,
+    stop_on_error: bool = True,
+    verify_postexecution: bool = True,
+    geometry_check: bool = False,
+    capture_screenshot: bool = False,
+    live_check: bool = True,
+) -> Dict[str, Any]:
+    """Selectively re-run a node and its downstream dependents in an active execution."""
+    executor = get_active_execution(execution_token)
+    if not executor:
+        raise ValueError(
+            f"No active execution found for token '{execution_token}'. "
+            "The execution may have already completed or the server process was restarted."
+        )
+    return executor.invalidate_and_rerun(
+        node_id=node_id,
+        new_params=new_params,
+        pause_after=pause_after,
+        stop_on_error=stop_on_error,
+        verify_postexecution=verify_postexecution,
+        geometry_check=geometry_check,
+        capture_screenshot=capture_screenshot,
+        live_check=live_check,
+    )
+
 
 

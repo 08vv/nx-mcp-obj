@@ -326,5 +326,53 @@ def test_run_spec_and_resume_spec_tools():
     assert "resumed and completed successfully" in str(res2)
 
 
+def test_rerun_spec_node_updates_parameters_and_downstream():
+    """Verify rerun_spec_node invalidates target node + downstream and applies updated parameters."""
+    from nx_mcp.spec.executor import execute_spec, rerun_spec_node
+
+    spec_data = {
+        "part_name": "rerun_test",
+        "nodes": [
+            {"id": "base", "op": "create_cuboid", "params": {"length": 100, "width": 60, "height": 20}},
+            {"id": "cut", "op": "add_hole", "params": {"x": 50, "y": 30, "z": 0, "diameter": 8, "depth": 10, "target": "$base.body_id"}},
+            {"id": "fillet", "op": "add_fillet", "params": {"radius": 1.0, "body": "$base.body_id"}},
+        ],
+    }
+
+    # Pause after base
+    rep1 = execute_spec(spec_data, pause_after=["base"])
+    assert rep1["status"] == "paused"
+    token = rep1["execution_token"]
+
+    # Re-run base with updated length 120 and execute to completion
+    rep2 = rerun_spec_node(token, "base", new_params={"length": 120})
+    assert rep2["status"] == "completed"
+    assert rep2["executed_nodes"] == ["base", "cut", "fillet"]
+    assert rep2["symbol_table"]["base"] is not None
+
+
+def test_rerun_spec_node_via_tool():
+    """Verify rerun_spec_node tool updates parameters and resumes."""
+    from nx_mcp.tools.recipe import run_spec, rerun_spec_node
+
+    spec_data = {
+        "part_name": "tool_rerun_test",
+        "nodes": [
+            {"id": "base", "op": "create_cuboid", "params": {"length": 50, "width": 50, "height": 20}},
+            {"id": "hole", "op": "add_hole", "params": {"x": 25, "y": 25, "z": 0, "diameter": 10, "depth": 15, "target": "$base.body_id"}},
+        ],
+    }
+
+    res1 = run_spec(spec_data, pause_after=["base"])
+    import re
+    match = re.search(r"Execution token: '([^']+)'", str(res1))
+    assert match is not None
+    token = match.group(1)
+
+    res2 = rerun_spec_node(token, "base", new_params={"length": 80})
+    assert "re-run node 'base' and completed successfully" in str(res2)
+
+
+
 
 

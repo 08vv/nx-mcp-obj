@@ -193,3 +193,54 @@ def resume_spec(
         return ToolError(str(e))
 
 
+@mcp_tool("rerun_spec_node", "Selectively re-run a node and its downstream dependents with updated parameters")
+def rerun_spec_node(
+    execution_token: str,
+    node_id: str,
+    new_params: Optional[Dict[str, Any]] = None,
+    pause_after: Optional[Union[List[str], str]] = None,
+    stop_on_error: bool = True,
+    verify_postexecution: bool = True,
+):
+    """
+    Selectively re-run a node and its downstream dependents in an active execution session.
+
+    :param execution_token: The token returned when execution was paused.
+    :param node_id: The ID of the node to re-run with new parameters.
+    :param new_params: Optional dictionary of updated parameters for the node.
+    :param pause_after: Optional node ID(s) to pause at a subsequent step.
+    :param stop_on_error: Whether to abort on failure (default True).
+    :param verify_postexecution: Whether to verify geometry on completion (default True).
+    """
+    try:
+        from ..spec.executor import rerun_spec_node as run_rerun
+        report = run_rerun(
+            execution_token,
+            node_id=node_id,
+            new_params=new_params,
+            pause_after=pause_after,
+            stop_on_error=stop_on_error,
+            verify_postexecution=verify_postexecution,
+        )
+        if report.get("status") == "paused":
+            return ToolResult(
+                f"CAD Spec '{report.get('part_name')}' re-run node '{node_id}' and paused after '{report.get('paused_node')}'. "
+                f"Execution token: '{report.get('execution_token')}'."
+            )
+        elif report.get("ok"):
+            postcheck = report.get("postcheck_report") or {}
+            post_valid = postcheck.get("valid", True)
+            return ToolResult(
+                f"CAD Spec '{report.get('part_name')}' re-run node '{node_id}' and completed successfully "
+                f"({len(report.get('executed_nodes', []))} nodes completed). "
+                f"Post-check: {'VALID' if post_valid else 'VIOLATIONS DETECTED'}"
+            )
+        else:
+            return ToolError(
+                f"CAD Spec re-run failed at node '{report.get('failed_node')}': {report.get('failure_error')}"
+            )
+    except Exception as e:
+        return ToolError(str(e))
+
+
+
