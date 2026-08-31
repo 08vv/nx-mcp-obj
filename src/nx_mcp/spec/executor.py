@@ -162,6 +162,8 @@ class SpecExecutor:
         stop_on_error: bool = True,
         pause_after: Union[List[str], str, None] = None,
         verify_postexecution: bool = True,
+        geometry_check: bool = False,
+        capture_screenshot: bool = False,
         live_check: bool = True,
     ) -> Dict[str, Any]:
         """Execute the CAD Spec graph, optionally pausing after specified nodes."""
@@ -224,7 +226,20 @@ class SpecExecutor:
         else:
             report["postcheck_report"] = None
 
+        if geometry_check:
+            from .geocheck import verify_geometry
+            report["geometry_report"] = verify_geometry(
+                self.spec,
+                self.dependency_graph,
+                report,
+                capture_screenshot=capture_screenshot,
+                live_check=live_check,
+            )
+        else:
+            report["geometry_report"] = None
+
         return report
+
 
 
     def _record_node_dependencies(self, node: SpecNode, res: Dict[str, Any], resolved_params: Dict[str, Any]) -> None:
@@ -475,6 +490,8 @@ def execute_spec(
     strict_plausibility: bool = False,
     pause_after: Union[List[str], str, None] = None,
     verify_postexecution: bool = True,
+    geometry_check: bool = False,
+    capture_screenshot: bool = False,
     live_check: bool = True,
 ) -> Dict[str, Any]:
     """Top-level convenience function to validate and execute a CAD Spec."""
@@ -488,6 +505,8 @@ def execute_spec(
         stop_on_error=stop_on_error,
         pause_after=pause_after,
         verify_postexecution=verify_postexecution,
+        geometry_check=geometry_check,
+        capture_screenshot=capture_screenshot,
         live_check=live_check,
     )
 
@@ -497,6 +516,8 @@ def resume_spec_execution(
     pause_after: Union[List[str], str, None] = None,
     stop_on_error: bool = True,
     verify_postexecution: bool = True,
+    geometry_check: bool = False,
+    capture_screenshot: bool = False,
     live_check: bool = True,
 ) -> Dict[str, Any]:
     """Resume execution of a previously paused CAD Spec graph using its token."""
@@ -510,6 +531,9 @@ def resume_spec_execution(
         stop_on_error=stop_on_error,
         pause_after=pause_after,
         verify_postexecution=verify_postexecution,
+        geometry_check=geometry_check,
+        capture_screenshot=capture_screenshot,
         live_check=live_check,
     )
+
 
