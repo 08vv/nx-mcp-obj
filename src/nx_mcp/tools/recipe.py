@@ -99,7 +99,12 @@ def run_recipe(steps: List[Dict[str, Any]], stop_on_error: bool = True):
 
 
 @mcp_tool("run_spec", "Execute a validated CAD Spec operation graph DAG with symbolic reference resolution")
-def run_spec(spec: Dict[str, Any], stop_on_error: bool = True):
+def run_spec(
+    spec: Dict[str, Any],
+    stop_on_error: bool = True,
+    validate_plausibility: bool = True,
+    verify_postexecution: bool = True,
+):
     """
     Execute a validated CAD Spec operation graph DAG with symbolic reference resolution.
 
@@ -107,13 +112,24 @@ def run_spec(spec: Dict[str, Any], stop_on_error: bool = True):
         Nodes support symbolic parameter references (e.g. '$n1.body_id') which resolve
         dynamically as upstream operations complete.
     :param stop_on_error: Whether to abort graph execution on the first node failure (default True).
+    :param validate_plausibility: Whether to run pre-execution physical/geometric plausibility validation (default True).
+    :param verify_postexecution: Whether to run post-execution geometry & graph verification (default True).
     """
     try:
         from ..spec.executor import execute_spec
-        report = execute_spec(spec, stop_on_error=stop_on_error)
+        report = execute_spec(
+            spec,
+            stop_on_error=stop_on_error,
+            validate_plausibility=validate_plausibility,
+            verify_postexecution=verify_postexecution,
+        )
         if report.get("ok"):
+            postcheck = report.get("postcheck_report") or {}
+            post_valid = postcheck.get("valid", True)
             return ToolResult(
-                f"CAD Spec '{report.get('part_name')}' executed successfully ({len(report.get('executed_nodes', []))} nodes completed)"
+                f"CAD Spec '{report.get('part_name')}' executed successfully "
+                f"({len(report.get('executed_nodes', []))} nodes completed). "
+                f"Plausibility: PASSED. Post-check: {'VALID' if post_valid else 'VIOLATIONS DETECTED'}"
             )
         else:
             return ToolError(

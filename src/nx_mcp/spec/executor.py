@@ -25,6 +25,7 @@ from .schema import (
 from .calc import safe_calc_eval, CalcEvalError
 from .geometry_math import GEOMETRY_FUNCTIONS
 from .validator import validate_spec
+from .plausibility import validate_plausibility as run_plausibility_check
 from ..state.dependency_graph import GeometryDependencyGraph, get_session_graph, reset_session_graph
 
 
@@ -39,7 +40,13 @@ class SpecExecutionError(RuntimeError):
 class SpecExecutor:
     """Resumable and steppable execution engine for CAD Spec operation graphs."""
 
-    def __init__(self, spec: Union[CADSpec, Dict[str, Any]], auto_validate: bool = True):
+    def __init__(
+        self,
+        spec: Union[CADSpec, Dict[str, Any]],
+        auto_validate: bool = True,
+        validate_plausibility: bool = True,
+        strict_plausibility: bool = False,
+    ):
         if isinstance(spec, dict):
             self.spec = CADSpec.from_dict(spec)
         else:
@@ -53,6 +60,7 @@ class SpecExecutor:
         self.failure_error: Optional[str] = None
         self.status: str = "pending"  # pending, running, completed, failed
         self.dependency_graph = GeometryDependencyGraph(part_name=self.spec.part_name)
+        self.plausibility_report: Optional[Dict[str, Any]] = None
 
         if auto_validate:
             val_res = validate_spec(self.spec)
@@ -62,6 +70,15 @@ class SpecExecutor:
             self.topological_order = val_res["topological_order"]
         else:
             self.topological_order = [n.id for n in self.spec.nodes]
+
+        if validate_plausibility:
+            self.plausibility_report = run_plausibility_check(self.spec, strict=strict_plausibility)
+            if not self.plausibility_report["plausible"]:
+                err_msgs = "; ".join(e["message"] for e in self.plausibility_report["errors"])
+                if strict_plausibility and self.plausibility_report["warnings"]:
+                    warn_msgs = "; ".join(w["message"] for w in self.plausibility_report["warnings"])
+                    err_msgs = f"{err_msgs}; Warnings: {warn_msgs}" if err_msgs else f"Warnings: {warn_msgs}"
+                raise ValueError(f"Spec plausibility check failed: {err_msgs}")
 
         self.current_step_index = 0
 
@@ -125,7 +142,12 @@ class SpecExecutor:
                 "error": str(e),
             }
 
-    def execute_all(self, stop_on_error: bool = True) -> Dict[str, Any]:
+    def execute_all(
+        self,
+        stop_on_error: bool = True,
+        verify_postexecution: bool = True,
+        live_check: bool = True,
+    ) -> Dict[str, Any]:
         """Execute the entire CAD Spec graph atomically."""
         while self.has_next():
             step_res = self.execute_next_node()
@@ -137,7 +159,7 @@ class SpecExecutor:
             nid for nid in self.topological_order if nid not in self.executed_nodes and nid != self.failed_node
         ]
 
-        return {
+        report = {
             "ok": self.status == "completed",
             "part_name": self.spec.part_name,
             "status": self.status,
@@ -149,7 +171,21 @@ class SpecExecutor:
             "symbol_table": dict(self.symbol_table),
             "node_results": dict(self.node_results),
             "dependency_graph": self.dependency_graph.to_dict(),
+            "plausibility_report": self.plausibility_report,
         }
+
+        if verify_postexecution:
+            from .postcheck import verify_postexecution as run_postcheck
+            report["postcheck_report"] = run_postcheck(
+                self.spec,
+                self.dependency_graph,
+                report,
+                live_check=live_check,
+            )
+        else:
+            report["postcheck_report"] = None
+
+        return report
 
     def _record_node_dependencies(self, node: SpecNode, res: Dict[str, Any], resolved_params: Dict[str, Any]) -> None:
         """Record the execution outcome of a node into the geometry dependency graph."""
@@ -392,7 +428,23 @@ class SpecExecutor:
         return symbols
 
 
-def execute_spec(spec: Union[CADSpec, Dict[str, Any]], stop_on_error: bool = True) -> Dict[str, Any]:
+def execute_spec(
+    spec: Union[CADSpec, Dict[str, Any]],
+    stop_on_error: bool = True,
+    validate_plausibility: bool = True,
+    strict_plausibility: bool = False,
+    verify_postexecution: bool = True,
+    live_check: bool = True,
+) -> Dict[str, Any]:
     """Top-level convenience function to validate and execute a CAD Spec atomically."""
-    executor = SpecExecutor(spec, auto_validate=True)
-    return executor.execute_all(stop_on_error=stop_on_error)
+    executor = SpecExecutor(
+        spec,
+        auto_validate=True,
+        validate_plausibility=validate_plausibility,
+        strict_plausibility=strict_plausibility,
+    )
+    return executor.execute_all(
+        stop_on_error=stop_on_error,
+        verify_postexecution=verify_postexecution,
+        live_check=live_check,
+    )
