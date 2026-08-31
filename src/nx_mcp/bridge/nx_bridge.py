@@ -1639,39 +1639,56 @@ def draw_spline(points, degree=3, closed=False, plane="active"):
 
 def _resolve_single_curve(reference, require_spline_metadata=False):
     """
-    Resolve a curve reference ('last', 'previous', Tag integer, or index) to a single curve object.
+    Resolve a curve reference ('last', 'previous', Tag integer, 'curve_N', or index) to a single curve object.
     When require_spline_metadata is True, filters history for curves present in _state['curve_metadata'].
     """
-    history = list(_state.get("curve_history", []))
+    if reference is not None and not isinstance(reference, (str, int)):
+        if hasattr(reference, "Tag") or hasattr(reference, "StartPoint") or type(reference).__name__ in ("Curve", "Line", "Arc", "Spline", "StudioSpline"):
+            return reference
+
+    ref_str = str(reference or "last").strip().lower()
+
+    # Check ID map (e.g. curve_1)
+    if ref_str in _state.get("id_map", {}):
+        obj = _state["id_map"][ref_str]
+        if hasattr(obj, "Tag") or hasattr(obj, "StartPoint"):
+            return obj
+
+    raw_history = list(_state.get("curve_history", []))
+    flat_curves = []
+    for item in raw_history:
+        if isinstance(item, (list, tuple)):
+            for c in item:
+                if c is not None and c not in flat_curves:
+                    flat_curves.append(c)
+        elif item is not None and item not in flat_curves:
+            flat_curves.append(item)
+
+    if not flat_curves:
+        last_curves = _state.get("last_curves", [])
+        for c in (last_curves if isinstance(last_curves, (list, tuple)) else [last_curves]):
+            if c is not None and c not in flat_curves:
+                flat_curves.append(c)
 
     if require_spline_metadata:
         metadata_map = _state.get("curve_metadata", {})
-        valid = [c for c in history if str(getattr(c, "Tag", "")) in metadata_map]
+        valid = [c for c in flat_curves if str(getattr(c, "Tag", "")) in metadata_map]
         if valid:
-            history = valid
+            flat_curves = valid
 
-    if not history:
-        last_curves = _state.get("last_curves", [])
-        if require_spline_metadata:
-            metadata_map = _state.get("curve_metadata", {})
-            last_curves = [c for c in last_curves if str(getattr(c, "Tag", "")) in metadata_map]
-        if len(last_curves) == 1:
-            return last_curves[0]
-
-    if not history:
+    if not flat_curves:
         raise SelectionError("No curve available in session history")
 
-    ref_str = str(reference).strip().lower()
-    if ref_str == "last":
-        return history[-1]
-    elif ref_str in ("previous", "prev"):
-        if len(history) >= 2:
-            return history[-2]
-        return history[0]
+    if ref_str in ("last", "last_curve", "last curve", "curve"):
+        return flat_curves[-1]
+    elif ref_str in ("previous", "prev", "previous_curve", "prev_curve"):
+        if len(flat_curves) >= 2:
+            return flat_curves[-2]
+        return flat_curves[0]
 
     try:
         tag_val = int(ref_str)
-        for c in history:
+        for c in flat_curves:
             if getattr(c, "Tag", None) == tag_val:
                 return c
     except ValueError:
@@ -1689,20 +1706,28 @@ def _resolve_curve_group(reference="last_profile"):
     returns a list containing that curve.
     """
     ref_str = str(reference or "last_profile").strip().lower()
-    history = list(_state.get("curve_history", []))
+    raw_history = list(_state.get("curve_history", []))
+    flat_history = []
+    for item in raw_history:
+        if isinstance(item, (list, tuple)):
+            for c in item:
+                if c is not None and c not in flat_history:
+                    flat_history.append(c)
+        elif item is not None and item not in flat_history:
+            flat_history.append(item)
 
     if ref_str in {"last", "last_profile", "profile", "all"}:
         start_idx = _state.get("profile_start_index", 0)
-        profile_curves = history[start_idx:]
+        profile_curves = flat_history[start_idx:]
         if not profile_curves:
             profile_curves = list(_state.get("last_curves", []))
         if profile_curves:
             return profile_curves
 
-    if not history:
+    if not flat_history:
         last_curves = _state.get("last_curves", [])
         if last_curves:
-            return last_curves
+            return list(last_curves) if isinstance(last_curves, (list, tuple)) else [last_curves]
         raise SelectionError("No curve available in session history")
 
     try:
@@ -1710,10 +1735,10 @@ def _resolve_curve_group(reference="last_profile"):
         return [single]
     except Exception:
         start_idx = _state.get("profile_start_index", 0)
-        profile_curves = history[start_idx:]
+        profile_curves = flat_history[start_idx:]
         if profile_curves:
             return profile_curves
-        return history
+        return flat_history
 
 
 def offset_curve(curve_reference="last", start_width=5.0, end_width=7.0, side="auto"):
