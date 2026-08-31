@@ -68,6 +68,7 @@ CATEGORY_TOOLS = {
         "create_cylinder", "extrude", "revolve", "boolean_unite",
         "boolean_subtract", "add_fillet", "add_chamfer", "add_hole",
         "mirror_feature", "pattern_feature", "edit_expression",
+        "create_expression", "list_expressions",
         "create_real_sketch", "extrude_from_sketch", "add_hole_nx",
         "create_rib", "pattern_circular", "edge_blend", "chamfer",
         "revolve_cut", "extrude_cut", "mirror_body_feature",
@@ -80,6 +81,7 @@ CATEGORY_TOOLS = {
         "create_offset_plane", "add_constraint_horizontal",
         "add_constraint_vertical", "add_constraint_fixed", "draw_spline",
         "offset_curve", "close_curve_region", "create_profile",
+        "polar_to_cartesian_points",
     ],
     "Surface Modeling": [
         "trim_sheet", "extend_sheet", "trim_and_extend", "sew_sheets",
@@ -105,7 +107,8 @@ CATEGORY_TOOLS = {
         "list_features", "get_active_part", "get_last_operation_status",
         "list_feature_edges", "run_recipe", "run_spec",
         "get_dependency_graph", "get_downstream", "get_upstream",
-        "validate_dependency_graph",
+        "validate_dependency_graph", "get_relevant_nx_tools",
+        "inspect_api", "inspect_part", "run_nx_journal_code",
     ],
 }
 
@@ -137,14 +140,16 @@ CATEGORY_KEYWORDS = {
         "mirror", "pattern", "linear pattern", "circular pattern",
         "rib", "web", "edge blend", "expression", "parameter",
         "cut", "pocket", "boss", "solid", "block", "split", "emboss",
-        "shell", "draft", "gear",
+        "shell", "draft", "gear", "create expression", "list expressions",
+        "bolt circle", "bolt pattern",
     ],
     "Sketch": [
         "sketch", "draw", "line", "rectangle", "circle", "arc",
         "rounded rectangle", "horizontal constraint", "vertical constraint",
         "fixed constraint", "profile", "contour", "offset plane",
         "datum plane", "linkage arm", "2d", "spline", "curve", "blade",
-        "cam", "impeller", "variable width", "variable-width",
+        "cam", "impeller", "variable width", "variable-width", "create profile",
+        "polar", "cartesian", "polar to cartesian", "closed profile", "open profile",
     ],
     "Surface Modeling": [
         "surface", "sheet", "loft", "sweep", "through curves", "mesh",
@@ -160,7 +165,10 @@ CATEGORY_KEYWORDS = {
         "viewport", "top view", "front view", "right view", "iso view",
         "screenshot", "capture", "fit view", "zoom", "reset bridge",
         "list features", "feature tree", "dependency graph", "dependencies",
-        "upstream", "downstream", "graph integrity",
+        "upstream", "downstream", "graph integrity", "cad spec", "spec",
+        "recipe", "run recipe", "run spec", "validate spec", "plausibility",
+        "postcheck", "inspect api", "inspect part", "journal code",
+        "relevant tools",
     ],
 }
 
@@ -297,3 +305,57 @@ def get_all_tool_names():
     for tools in CATEGORY_TOOLS.values():
         names.extend(tools)
     return names
+
+
+def get_spec_vocabulary(request_text: str) -> dict:
+    """Return filtered CAD Spec vocabulary (relevant ops and $fn: functions) for a task prompt.
+
+    Reuses CATEGORY_TOOLS mappings to determine relevant node operations without forking
+    the category system, and maps keyword intents to $fn: geometry math helpers.
+    """
+    routed = route(request_text)
+    matched_categories = [c["name"] for c in routed["categories"]]
+
+    # 1. Relevant Spec 'op' values (drawn from routed category tools)
+    relevant_ops = []
+    seen_ops = set()
+    for cat in routed["categories"]:
+        for tool_name in cat["tools"]:
+            if tool_name not in seen_ops:
+                seen_ops.add(tool_name)
+                relevant_ops.append(tool_name)
+
+    # 2. Relevant $fn: geometry math functions
+    prompt_lower = request_text.lower()
+    fn_matched = []
+
+    # Check for bolt circle / polar patterns
+    if any(k in prompt_lower for k in ("bolt", "circle", "flange", "hole pattern", "polar", "radial", "circular")):
+        for fn in ("bolt_circle", "polar_to_cartesian", "cartesian_to_polar"):
+            if fn not in fn_matched:
+                fn_matched.append(fn)
+
+    # Check for linear spacing / lerp / array
+    if any(k in prompt_lower for k in ("linear", "spacing", "pitch", "array", "line", "points", "step", "distance", "interp", "lerp")):
+        for fn in ("linear_spacing", "lerp"):
+            if fn not in fn_matched:
+                fn_matched.append(fn)
+
+    # Check for angle conversions
+    if any(k in prompt_lower for k in ("deg", "rad", "angle", "trig", "rotate", "revolution", "degrees", "radians")):
+        for fn in ("deg_to_rad", "rad_to_deg"):
+            if fn not in fn_matched:
+                fn_matched.append(fn)
+
+    # Default fallback: if no specific fn keywords matched, include core geometry helpers
+    if not fn_matched:
+        fn_matched = ["bolt_circle", "linear_spacing", "polar_to_cartesian", "deg_to_rad", "rad_to_deg"]
+
+    return {
+        "matched_categories": matched_categories,
+        "is_fallback": routed["is_fallback"],
+        "relevant_ops_count": len(relevant_ops),
+        "relevant_ops": relevant_ops,
+        "relevant_fn_functions": fn_matched,
+    }
+

@@ -263,3 +263,89 @@ class TestServerRouting:
         })
         assert len(res2["result"]["tools"]) == len(ToolRegistry.list_tools())
 
+
+class TestPhase8RoutingExtensions:
+    """Tests for Phase 8 tool registry completeness, spec vocabulary, and unrouted execution."""
+
+    def test_all_registered_tools_are_categorized(self):
+        """Audit test: 100% of tools in ToolRegistry must be present in CATEGORY_TOOLS."""
+        import nx_mcp.server  # Ensure all tools imported
+        from nx_mcp.tools.registry import ToolRegistry
+
+        registered_tools = set(ToolRegistry.all().keys())
+        categorized_tools = {t for tools in CATEGORY_TOOLS.values() for t in tools}
+
+        uncategorized = registered_tools - categorized_tools
+        assert len(uncategorized) == 0, f"Found {len(uncategorized)} uncategorized tools: {uncategorized}"
+        assert len(registered_tools) == 151
+        assert len(categorized_tools) == 151
+
+    def test_phase3_to_7_keywords_route_correctly(self):
+        """Verify that Phase 3-7 operations and concepts route to expected categories."""
+        # 1. Bolt circle / Modeling
+        r1 = route("Create a bolt circle flange and shell it")
+        cats1 = [c["name"] for c in r1["categories"]]
+        assert "Modeling" in cats1
+
+        # 2. Dependency graph / Utility
+        r2 = route("Show me the dependency graph and check upstream dependencies")
+        cats2 = [c["name"] for c in r2["categories"]]
+        assert "Utility" in cats2
+
+        # 3. Expressions / Modeling
+        r3 = route("Create expression and list expressions")
+        cats3 = [c["name"] for c in r3["categories"]]
+        assert "Modeling" in cats3
+
+        # 4. Polar coordinates / Sketch
+        r4 = route("Compute polar to cartesian points and create profile")
+        cats4 = [c["name"] for c in r4["categories"]]
+        assert "Sketch" in cats4
+
+        # 5. Spec & validation / Utility
+        r5 = route("Run CAD spec with plausibility and postcheck verification")
+        cats5 = [c["name"] for c in r5["categories"]]
+        assert "Utility" in cats5
+
+    def test_get_spec_vocabulary(self):
+        """Verify get_spec_vocabulary returns matched ops and mapped $fn: functions."""
+        from nx_mcp.router import get_spec_vocabulary
+
+        # Bolt / flange prompt surfaces bolt_circle, polar_to_cartesian
+        v1 = get_spec_vocabulary("Create a bolt circle pattern with holes")
+        assert "create_cuboid" in v1["relevant_ops"] or "add_hole" in v1["relevant_ops"]
+        assert "bolt_circle" in v1["relevant_fn_functions"]
+        assert "polar_to_cartesian" in v1["relevant_fn_functions"]
+
+        # Linear spacing prompt surfaces linear_spacing, lerp
+        v2 = get_spec_vocabulary("Array holes with linear spacing and pitch 20mm")
+        assert "linear_spacing" in v2["relevant_fn_functions"]
+        assert "lerp" in v2["relevant_fn_functions"]
+
+    def test_discovery_tool_with_spec_vocabulary(self):
+        """Verify get_relevant_nx_tools includes spec_vocabulary when requested."""
+        import json
+        from nx_mcp.tools.discovery import get_relevant_nx_tools
+
+        res_str = get_relevant_nx_tools("Create a bolt circle", include_spec_vocabulary=True)
+        res = json.loads(res_str)
+        assert "spec_vocabulary" in res
+        assert "bolt_circle" in res["spec_vocabulary"]["relevant_fn_functions"]
+        assert len(res["spec_vocabulary"]["relevant_ops"]) > 0
+
+    def test_run_spec_executes_unrouted_ops(self):
+        """Verify run_spec executes valid ops even if they were outside the prompt's routed categories."""
+        from nx_mcp.tools.recipe import run_spec
+
+        # Spec using create_cuboid (Modeling)
+        spec = {
+            "part_name": "unrouted_op_test",
+            "nodes": [
+                {"id": "b1", "op": "create_cuboid", "params": {"length": 50, "width": 50, "height": 10}},
+            ],
+        }
+        res = run_spec(spec, stop_on_error=True)
+        assert not res.is_error if hasattr(res, "is_error") else True
+        assert "executed successfully" in str(res)
+
+
