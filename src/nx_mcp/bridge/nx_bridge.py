@@ -385,8 +385,13 @@ def _remember_feature(feature):
         try:
             bodies = get_bodies() or []
             if bodies:
-                body = bodies[0]
-                _register_body(body)
+                b = bodies[0]
+                if _is_real_solid_body(b):
+                    if _state.get("last_body") is None:
+                        body = b
+                        _register_body(body)
+                    else:
+                        body = _state["last_body"]
         except Exception:
             pass
 
@@ -614,52 +619,6 @@ def _resolve_feature(reference="last"):
     raise SelectionError(f"Could not resolve feature reference: {reference}")
 
 
-def _resolve_body(reference="last"):
-    if reference is not None and not isinstance(reference, str):
-        if hasattr(reference, "GetEdges") or type(reference).__name__ == "Body":
-            return reference
-    work_part = _ensure_work_part()
-    ref = str(reference or "last").strip().lower()
-
-    if ref in _state.get("id_map", {}) and hasattr(_state["id_map"][ref], "GetEdges"):
-        return _state["id_map"][ref]
-
-    if ref in {"last", "last body", "last_created", "last created body", "target"}:
-        body = _state.get("last_body")
-        if body is not None:
-            return body
-        bodies = _iter_bodies(work_part)
-        if bodies:
-            _register_body(bodies[-1])
-            return bodies[-1]
-
-    if ref.startswith("body_"):
-        if ref in _state.get("bodies", {}):
-            return _state["bodies"][ref]
-        suffix = ref[5:].strip()
-        if suffix.isdigit():
-            idx = int(suffix) - 1
-            bodies = _iter_bodies(work_part)
-            if 0 <= idx < len(bodies):
-                return bodies[idx]
-
-    if ref in _state.get("bodies", {}):
-        return _state["bodies"][ref]
-
-    bodies = _iter_bodies(work_part)
-    for body in bodies:
-        name = _body_name(body).lower()
-        _state["bodies"][name] = body
-        if ref == name or ref in name:
-            return body
-
-    if len(bodies) == 1 and ref in {"", "body", "solid", "work"}:
-        _register_body(bodies[0])
-        return bodies[0]
-
-    raise SelectionError(f"Could not resolve body reference: {reference}")
-
-
 def _point_tuple(point):
     if isinstance(point, (tuple, list)):
         return float(point[0]), float(point[1]), float(point[2])
@@ -693,6 +652,103 @@ def _body_bounds(body):
     ys = [p[1] for p in points]
     zs = [p[2] for p in points]
     return (min(xs), min(ys), min(zs)), (max(xs), max(ys), max(zs))
+
+
+def _is_real_solid_body(body):
+    """Check whether a body is a non-degenerate solid body with non-zero 3D spatial extent."""
+    if body is None:
+        return False
+    if hasattr(body, "IsSolidBody") and not getattr(body, "IsSolidBody"):
+        return False
+    try:
+        min_pt, max_pt = _body_bounds(body)
+        dx = abs(max_pt[0] - min_pt[0])
+        dy = abs(max_pt[1] - min_pt[1])
+        dz = abs(max_pt[2] - min_pt[2])
+        if dx < 1e-4 and dy < 1e-4 and dz < 1e-4:
+            return False
+    except Exception:
+        pass
+    return True
+
+
+def _body_volume_metric(body):
+    """Calculate approximate bounding box volume metric for ranking solid bodies."""
+    if body is None:
+        return 0.0
+    try:
+        min_pt, max_pt = _body_bounds(body)
+        dx = max(0.0, max_pt[0] - min_pt[0])
+        dy = max(0.0, max_pt[1] - min_pt[1])
+        dz = max(0.0, max_pt[2] - min_pt[2])
+        return dx * dy * dz
+    except Exception:
+        return 0.0
+
+
+def _resolve_body(reference="last"):
+    if reference is not None and not isinstance(reference, str):
+        if hasattr(reference, "GetEdges") or type(reference).__name__ == "Body":
+            return reference
+    work_part = _ensure_work_part()
+    ref = str(reference or "last").strip().lower()
+
+    if ref in _state.get("id_map", {}) and hasattr(_state["id_map"][ref], "GetEdges"):
+        return _state["id_map"][ref]
+
+    all_bodies = _iter_bodies(work_part)
+    solid_bodies = [b for b in all_bodies if _is_real_solid_body(b)]
+    if not solid_bodies:
+        solid_bodies = list(all_bodies)
+
+    if ref in {"last", "last body", "last_created", "last created body", "target", "primary", "main"}:
+        body = _state.get("last_body")
+        if body is not None and _is_real_solid_body(body):
+            try:
+                _body_bounds(body)
+                return body
+            except Exception:
+                pass
+        if solid_bodies:
+            best_body = max(solid_bodies, key=_body_volume_metric)
+            _register_body(best_body)
+            return best_body
+
+    if ref.startswith("body_"):
+        if ref in _state.get("bodies", {}):
+            return _state["bodies"][ref]
+        suffix = ref[5:].strip()
+        if suffix.isdigit():
+            idx = int(suffix) - 1
+            if 0 <= idx < len(all_bodies):
+                return all_bodies[idx]
+
+    if ref in _state.get("bodies", {}):
+        return _state["bodies"][ref]
+
+    for body in all_bodies:
+        name = _body_name(body).lower()
+        _state["bodies"][name] = body
+        if ref == name or ref in name:
+            return body
+
+    if ref in {"", "body", "solid", "part", "work"}:
+        if len(solid_bodies) == 1:
+            _register_body(solid_bodies[0])
+            return solid_bodies[0]
+        elif solid_bodies:
+            body = _state.get("last_body")
+            if body is not None and body in solid_bodies and _is_real_solid_body(body):
+                try:
+                    _body_bounds(body)
+                    return body
+                except Exception:
+                    pass
+            best_body = max(solid_bodies, key=_body_volume_metric)
+            _register_body(best_body)
+            return best_body
+
+    raise SelectionError(f"Could not resolve body reference: {reference}")
 
 
 def _format_bounds(body):
@@ -2953,6 +3009,8 @@ def pattern_feature(feature_name="last", direction="X", count=3, pitch=10.0):
         return {"ok": False, "error": "This NXOpen API has no supported feature pattern builder"}
 
     builder = builder_factory(NXOpen.Features.Feature.Null)
+    pre_last_body = _state.get("last_body")
+    pre_last_body_id = _state.get("last_body_id")
     pre_bodies = list(_iter_bodies(work_part))
     try:
         if hasattr(builder, "FeatureList"):
@@ -2984,29 +3042,49 @@ def pattern_feature(feature_name="last", direction="X", count=3, pitch=10.0):
         feature = builder.CommitFeature()
         fid = _register_feature(feature)
         
-        post_bodies = list(_iter_bodies(work_part))
         pattern_bodies = []
-        for b in post_bodies:
-            if b not in pre_bodies:
-                pattern_bodies.append(_register_body(b))
-        if not pattern_bodies:
-            try:
-                get_bodies = getattr(feature, "GetBodies", None)
-                if callable(get_bodies):
-                    for b in get_bodies() or []:
-                        pattern_bodies.append(_register_body(b))
-            except Exception:
-                pass
+        if pre_last_body is None:
+            post_bodies = list(_iter_bodies(work_part))
+            for b in post_bodies:
+                if b not in pre_bodies and _is_real_solid_body(b):
+                    pattern_bodies.append(_register_body(b))
+            if not pattern_bodies:
+                try:
+                    get_bodies = getattr(feature, "GetBodies", None)
+                    if callable(get_bodies):
+                        for b in get_bodies() or []:
+                            if b not in pre_bodies and _is_real_solid_body(b):
+                                pattern_bodies.append(_register_body(b))
+                except Exception:
+                    pass
     finally:
         builder.Destroy()
 
+    # If a pre-existing solid body was modified by this feature pattern, preserve it
+    if pre_last_body is not None:
+        _state["last_body"] = pre_last_body
+        _state["last_body_id"] = pre_last_body_id
+        primary_bid = pre_last_body_id or _state.get("object_to_id", {}).get(getattr(pre_last_body, "Tag", None), "body_1")
+        produced_list = []
+        body_ids_list = []
+        modified_list = [primary_bid] if primary_bid else []
+    else:
+        primary_bid = pattern_bodies[0] if pattern_bodies else _state.get("object_to_id", {}).get(getattr(_state.get("last_body"), "Tag", None), "body_1")
+        produced_list = pattern_bodies
+        body_ids_list = pattern_bodies
+        modified_list = []
+
     fit_view()
+    source_fid = _state.get("object_to_id", {}).get(getattr(source_feature, "Tag", None), str(feature_name))
     return {
         "ok": True,
         "message": f"Pattern '{_feature_name(source_feature)}' {count}x @ {pitch}mm along {direction}",
         "feature_id": fid,
-        "body_ids": pattern_bodies,
-        "body_id": pattern_bodies[0] if pattern_bodies else _state.get("object_to_id", {}).get(getattr(_state.get("last_body"), "Tag", None), "body_1"),
+        "body_ids": body_ids_list,
+        "body_id": primary_bid,
+        "consumed": [source_fid] if source_fid else [],
+        "produced": produced_list,
+        "modified": modified_list,
     }
 
 
@@ -3477,6 +3555,8 @@ def pattern_circular(
         return {"ok": False, "error": "CreatePatternFeatureBuilder not available in this NX version"}
 
     builder = builder_factory(NXOpen.Features.Feature.Null)
+    pre_last_body = _state.get("last_body")
+    pre_last_body_id = _state.get("last_body_id")
     pre_bodies = list(_iter_bodies(work_part))
     try:
         # Add source feature
@@ -3550,21 +3630,37 @@ def pattern_circular(
         feature = builder.CommitFeature()
         fid = _register_feature(feature)
         
-        post_bodies = list(_iter_bodies(work_part))
         pattern_bodies = []
-        for b in post_bodies:
-            if b not in pre_bodies:
-                pattern_bodies.append(_register_body(b))
-        if not pattern_bodies:
-            try:
-                get_bodies = getattr(feature, "GetBodies", None)
-                if callable(get_bodies):
-                    for b in get_bodies() or []:
-                        pattern_bodies.append(_register_body(b))
-            except Exception:
-                pass
+        if pre_last_body is None:
+            post_bodies = list(_iter_bodies(work_part))
+            for b in post_bodies:
+                if b not in pre_bodies and _is_real_solid_body(b):
+                    pattern_bodies.append(_register_body(b))
+            if not pattern_bodies:
+                try:
+                    get_bodies = getattr(feature, "GetBodies", None)
+                    if callable(get_bodies):
+                        for b in get_bodies() or []:
+                            if b not in pre_bodies and _is_real_solid_body(b):
+                                pattern_bodies.append(_register_body(b))
+                except Exception:
+                    pass
     finally:
         builder.Destroy()
+
+    # If a pre-existing solid body was modified by this feature pattern, preserve it
+    if pre_last_body is not None:
+        _state["last_body"] = pre_last_body
+        _state["last_body_id"] = pre_last_body_id
+        primary_bid = pre_last_body_id or _state.get("object_to_id", {}).get(getattr(pre_last_body, "Tag", None), "body_1")
+        produced_list = []
+        body_ids_list = []
+        modified_list = [primary_bid] if primary_bid else []
+    else:
+        primary_bid = pattern_bodies[0] if pattern_bodies else _state.get("object_to_id", {}).get(getattr(_state.get("last_body"), "Tag", None), "body_1")
+        produced_list = pattern_bodies
+        body_ids_list = pattern_bodies
+        modified_list = []
 
     fit_view()
     source_fid = _state.get("object_to_id", {}).get(getattr(source_feature, "Tag", None), str(feature_name))
@@ -3575,11 +3671,11 @@ def pattern_circular(
             f"{count}x over {angle_total}° about {resolved_axis}"
         ),
         "feature_id": fid,
-        "body_ids": pattern_bodies,
-        "body_id": pattern_bodies[0] if pattern_bodies else _state.get("object_to_id", {}).get(getattr(_state.get("last_body"), "Tag", None), "body_1"),
+        "body_ids": body_ids_list,
+        "body_id": primary_bid,
         "consumed": [source_fid] if source_fid else [],
-        "produced": pattern_bodies,
-        "modified": [],
+        "produced": produced_list,
+        "modified": modified_list,
     }
 
 
@@ -4134,26 +4230,22 @@ def extrude_cut(distance, start=0.0, target="last", direction="auto", reverse_di
             finally:
                 builder.Destroy()
 
-    return {"ok": True, "message": f"Extrude-cut {distance}mm from '{_body_name(target_body)}'"}
-
-    if not target_set:
-        cut_body = _state.get("last_body")
-        if cut_body is None:
-            return {"ok": False, "error": "Extrude-cut solid creation succeeded but no body was recorded"}
-        saved_last_body = _state.get("last_body")
+    if target_body is not None:
         _state["last_body"] = target_body
-        try:
-            result = boolean_subtract(_body_name(target_body), _body_name(cut_body))
-        except Exception as e:
-            _state["last_body"] = saved_last_body
-            return {"ok": False, "error": f"Boolean subtract failed during extrude-cut: {e}"}
-        if result.get("ok"):
-            result["message"] = f"Extrude-cut {distance}mm from '{_body_name(target_body)}' along {direction}"
-        return result
+        bid = _state.get("object_to_id", {}).get(getattr(target_body, "Tag", None), _state.get("last_body_id", "body_1"))
+        _state["last_body_id"] = bid
+    else:
+        bid = _state.get("last_body_id", "body_1")
 
+    fid = _state.get("last_feature_id")
     return {
         "ok": True,
-        "message": f"Extrude-cut {distance}mm from '{_body_name(target_body)}' along {direction}",
+        "message": f"Extrude-cut {distance}mm from '{_body_name(target_body)}'",
+        "feature_id": fid,
+        "body_id": bid,
+        "consumed": [],
+        "modified": [bid] if bid else [],
+        "produced": [],
     }
 
 
@@ -5736,6 +5828,34 @@ def list_features():
 
 def get_bounding_box(body_reference="last"):
     try:
+        work_part = _ensure_work_part()
+        ref_str = str(body_reference or "last").strip().lower()
+        if ref_str in ("all", "part", "total", "work_part"):
+            all_b = _iter_bodies(work_part)
+            solid_b = [b for b in all_b if _is_real_solid_body(b)]
+            bodies = solid_b if solid_b else all_b
+            if not bodies:
+                raise SelectionError("No bodies found in active part")
+            overall_min = [float("inf"), float("inf"), float("inf")]
+            overall_max = [float("-inf"), float("-inf"), float("-inf")]
+            for b in bodies:
+                min_pt, max_pt = _body_bounds(b)
+                for i in range(3):
+                    overall_min[i] = min(overall_min[i], min_pt[i])
+                    overall_max[i] = max(overall_max[i], max_pt[i])
+            return {
+                "ok": True,
+                "message": (
+                    f"Overall bounding box for part ({len(bodies)} bodies): "
+                    f"Min=({overall_min[0]:.2f}, {overall_min[1]:.2f}, {overall_min[2]:.2f}), "
+                    f"Max=({overall_max[0]:.2f}, {overall_max[1]:.2f}, {overall_max[2]:.2f})"
+                ),
+                "bounding_box": {
+                    "min": overall_min,
+                    "max": overall_max,
+                },
+            }
+
         body = _resolve_body(body_reference)
         min_pt, max_pt = _body_bounds(body)
         return {
@@ -5744,7 +5864,11 @@ def get_bounding_box(body_reference="last"):
                 f"Bounding box for body '{_body_name(body)}': "
                 f"Min=({min_pt[0]:.2f}, {min_pt[1]:.2f}, {min_pt[2]:.2f}), "
                 f"Max=({max_pt[0]:.2f}, {max_pt[1]:.2f}, {max_pt[2]:.2f})"
-            )
+            ),
+            "bounding_box": {
+                "min": [min_pt[0], min_pt[1], min_pt[2]],
+                "max": [max_pt[0], max_pt[1], max_pt[2]],
+            },
         }
     except Exception as e:
         return {"ok": False, "error": f"Failed to get bounding box: {e}"}
