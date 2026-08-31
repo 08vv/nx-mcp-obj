@@ -249,6 +249,14 @@ class GeometryDependencyGraph:
             if n.status == "consumed" and (type_filter is None or n.type == type_filter)
         ]
 
+    @property
+    def edges(self) -> List[GeometryEdge]:
+        """Return all edges in the dependency graph."""
+        res = []
+        for edge_list in self._outgoing.values():
+            res.extend(edge_list)
+        return res
+
     def get_upstream(self, node_id: str, depth: Optional[int] = None) -> List[Dict[str, Any]]:
         """Query all entities upstream of node_id (what did this entity come from or depend on?).
 
