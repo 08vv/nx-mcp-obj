@@ -240,4 +240,91 @@ def test_executor_populates_dependency_graph():
     assert loft_body_id in str(upstream_res)
 
 
+def test_pause_after_single_node_and_resume():
+    """Verify pause_after stops at specified node, yields token, and resume completes remaining nodes."""
+    from nx_mcp.spec.executor import execute_spec, resume_spec_execution
+
+    spec_data = {
+        "part_name": "pause_resume_test",
+        "nodes": [
+            {"id": "n1", "op": "create_cuboid", "params": {"length": 50, "width": 50, "height": 20}},
+            {"id": "n2", "op": "add_hole", "params": {"x": 25, "y": 25, "z": 0, "diameter": 10, "depth": 15, "target": "$n1.body_id"}},
+            {"id": "n3", "op": "add_fillet", "params": {"radius": 2.0, "body": "$n1.body_id"}},
+        ],
+    }
+
+    # Execute with pause after n1
+    rep1 = execute_spec(spec_data, pause_after=["n1"])
+    assert rep1["status"] == "paused"
+    assert rep1["paused_node"] == "n1"
+    assert rep1["executed_nodes"] == ["n1"]
+    token = rep1["execution_token"]
+    assert token is not None
+
+    # Resume from token to completion
+    rep2 = resume_spec_execution(token)
+    assert rep2["status"] == "completed"
+    assert rep2["executed_nodes"] == ["n1", "n2", "n3"]
+    assert "n3" in rep2["symbol_table"]
+
+
+def test_pause_after_every_node_stepping():
+    """Verify pause_after='every_node' allows incremental stepping through graph."""
+    from nx_mcp.spec.executor import execute_spec, resume_spec_execution
+
+    spec_data = {
+        "part_name": "step_every_node_test",
+        "nodes": [
+            {"id": "step1", "op": "create_cuboid", "params": {"length": 40, "width": 40, "height": 10}},
+            {"id": "step2", "op": "add_fillet", "params": {"radius": 1.0, "body": "$step1.body_id"}},
+        ],
+    }
+
+    rep1 = execute_spec(spec_data, pause_after="every_node")
+    assert rep1["status"] == "paused"
+    assert rep1["executed_nodes"] == ["step1"]
+    token = rep1["execution_token"]
+
+    rep2 = resume_spec_execution(token)
+    assert rep2["status"] == "completed"
+    assert rep2["executed_nodes"] == ["step1", "step2"]
+
+
+def test_resume_with_invalid_token_raises_error():
+    """Verify resume_spec_execution raises ValueError when given an unknown or expired token."""
+    from nx_mcp.spec.executor import resume_spec_execution
+
+    with pytest.raises(ValueError, match="No active paused execution found"):
+        resume_spec_execution("nonexistent_token_123")
+
+
+def test_run_spec_and_resume_spec_tools():
+    """Verify run_spec tool returns pause instructions and resume_spec tool resumes."""
+    from nx_mcp.tools.recipe import run_spec, resume_spec
+
+    spec_data = {
+        "part_name": "tool_pause_resume",
+        "nodes": [
+            {"id": "n1", "op": "create_cuboid", "params": {"length": 50, "width": 50, "height": 20}},
+            {"id": "n2", "op": "add_fillet", "params": {"radius": 2.0, "body": "$n1.body_id"}},
+        ],
+    }
+
+    res1 = run_spec(spec_data, pause_after=["n1"])
+    res1_str = str(res1)
+    assert "paused after node 'n1'" in res1_str
+    assert "Execution token:" in res1_str
+
+    # Extract token
+    import re
+    match = re.search(r"Execution token: '([^']+)'", res1_str)
+    assert match is not None
+    token = match.group(1)
+
+    # Resume via tool
+    res2 = resume_spec(token)
+    assert "resumed and completed successfully" in str(res2)
+
+
+
 

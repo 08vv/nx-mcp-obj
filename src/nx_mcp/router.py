@@ -105,7 +105,7 @@ CATEGORY_TOOLS = {
     "Utility": [
         "set_view", "fit_view", "reset_nx_bridge", "take_screenshot",
         "list_features", "get_active_part", "get_last_operation_status",
-        "list_feature_edges", "run_recipe", "run_spec",
+        "list_feature_edges", "run_recipe", "run_spec", "resume_spec",
         "get_dependency_graph", "get_downstream", "get_upstream",
         "validate_dependency_graph", "get_relevant_nx_tools",
         "inspect_api", "inspect_part", "run_nx_journal_code",

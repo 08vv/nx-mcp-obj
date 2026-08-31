@@ -29,6 +29,20 @@ from .plausibility import validate_plausibility as run_plausibility_check
 from ..state.dependency_graph import GeometryDependencyGraph, get_session_graph, reset_session_graph
 
 
+# Global in-memory storage for paused execution sessions keyed by token
+_ACTIVE_EXECUTIONS: Dict[str, "SpecExecutor"] = {}
+
+
+def get_active_execution(token: str) -> Optional["SpecExecutor"]:
+    """Retrieve an active paused executor by its token."""
+    return _ACTIVE_EXECUTIONS.get(token)
+
+
+def clear_active_executions() -> None:
+    """Clear all active paused executions (useful for test isolation)."""
+    _ACTIVE_EXECUTIONS.clear()
+
+
 class SpecExecutionError(RuntimeError):
     def __init__(self, node_id: str, message: str, original_error: Optional[Exception] = None):
         super().__init__(f"Error executing node '{node_id}': {message}")
@@ -58,7 +72,8 @@ class SpecExecutor:
         self.executed_nodes: List[str] = []
         self.failed_node: Optional[str] = None
         self.failure_error: Optional[str] = None
-        self.status: str = "pending"  # pending, running, completed, failed
+        self.status: str = "pending"  # pending, running, paused, completed, failed
+        self.execution_token: Optional[str] = None
         self.dependency_graph = GeometryDependencyGraph(part_name=self.spec.part_name)
         self.plausibility_report: Optional[Dict[str, Any]] = None
 
@@ -84,7 +99,7 @@ class SpecExecutor:
 
     def has_next(self) -> bool:
         """Return True if there are remaining unexecuted nodes."""
-        return self.current_step_index < len(self.topological_order) and self.status != "failed"
+        return self.current_step_index < len(self.topological_order) and self.status not in ("failed",)
 
     def execute_next_node(self) -> Dict[str, Any]:
         """Execute a single next node in topological order and update graph state."""
@@ -145,14 +160,36 @@ class SpecExecutor:
     def execute_all(
         self,
         stop_on_error: bool = True,
+        pause_after: Union[List[str], str, None] = None,
         verify_postexecution: bool = True,
         live_check: bool = True,
     ) -> Dict[str, Any]:
-        """Execute the entire CAD Spec graph atomically."""
+        """Execute the CAD Spec graph, optionally pausing after specified nodes."""
         while self.has_next():
             step_res = self.execute_next_node()
             if not step_res.get("ok") and stop_on_error:
                 break
+
+            # Check pause condition
+            should_pause = False
+            executed_node = step_res.get("node_id")
+            if pause_after == "every_node":
+                should_pause = True
+            elif isinstance(pause_after, (list, set, tuple)) and executed_node in pause_after:
+                should_pause = True
+            elif isinstance(pause_after, str) and executed_node == pause_after:
+                should_pause = True
+
+            if should_pause and self.has_next():
+                self.status = "paused"
+                if not self.execution_token:
+                    import uuid
+                    self.execution_token = uuid.uuid4().hex[:8]
+                _ACTIVE_EXECUTIONS[self.execution_token] = self
+                break
+
+        if self.status == "completed" and self.execution_token in _ACTIVE_EXECUTIONS:
+            _ACTIVE_EXECUTIONS.pop(self.execution_token, None)
 
         total_nodes = len(self.topological_order)
         skipped_nodes = [
@@ -160,9 +197,11 @@ class SpecExecutor:
         ]
 
         report = {
-            "ok": self.status == "completed",
+            "ok": self.status in ("completed", "paused"),
             "part_name": self.spec.part_name,
             "status": self.status,
+            "execution_token": self.execution_token,
+            "paused_node": self.executed_nodes[-1] if self.status == "paused" and self.executed_nodes else None,
             "total_nodes": total_nodes,
             "executed_nodes": list(self.executed_nodes),
             "skipped_nodes": skipped_nodes,
@@ -174,7 +213,7 @@ class SpecExecutor:
             "plausibility_report": self.plausibility_report,
         }
 
-        if verify_postexecution:
+        if verify_postexecution and self.status == "completed":
             from .postcheck import verify_postexecution as run_postcheck
             report["postcheck_report"] = run_postcheck(
                 self.spec,
@@ -186,6 +225,7 @@ class SpecExecutor:
             report["postcheck_report"] = None
 
         return report
+
 
     def _record_node_dependencies(self, node: SpecNode, res: Dict[str, Any], resolved_params: Dict[str, Any]) -> None:
         """Record the execution outcome of a node into the geometry dependency graph."""
@@ -433,10 +473,11 @@ def execute_spec(
     stop_on_error: bool = True,
     validate_plausibility: bool = True,
     strict_plausibility: bool = False,
+    pause_after: Union[List[str], str, None] = None,
     verify_postexecution: bool = True,
     live_check: bool = True,
 ) -> Dict[str, Any]:
-    """Top-level convenience function to validate and execute a CAD Spec atomically."""
+    """Top-level convenience function to validate and execute a CAD Spec."""
     executor = SpecExecutor(
         spec,
         auto_validate=True,
@@ -445,6 +486,30 @@ def execute_spec(
     )
     return executor.execute_all(
         stop_on_error=stop_on_error,
+        pause_after=pause_after,
         verify_postexecution=verify_postexecution,
         live_check=live_check,
     )
+
+
+def resume_spec_execution(
+    execution_token: str,
+    pause_after: Union[List[str], str, None] = None,
+    stop_on_error: bool = True,
+    verify_postexecution: bool = True,
+    live_check: bool = True,
+) -> Dict[str, Any]:
+    """Resume execution of a previously paused CAD Spec graph using its token."""
+    executor = get_active_execution(execution_token)
+    if not executor:
+        raise ValueError(
+            f"No active paused execution found for token '{execution_token}'. "
+            "The execution may have already completed or the server process was restarted."
+        )
+    return executor.execute_all(
+        stop_on_error=stop_on_error,
+        pause_after=pause_after,
+        verify_postexecution=verify_postexecution,
+        live_check=live_check,
+    )
+

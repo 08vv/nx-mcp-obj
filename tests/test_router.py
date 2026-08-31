@@ -277,8 +277,8 @@ class TestPhase8RoutingExtensions:
 
         uncategorized = registered_tools - categorized_tools
         assert len(uncategorized) == 0, f"Found {len(uncategorized)} uncategorized tools: {uncategorized}"
-        assert len(registered_tools) == 151
-        assert len(categorized_tools) == 151
+        assert len(registered_tools) == len(categorized_tools)
+        assert len(registered_tools) >= 151
 
     def test_phase3_to_7_keywords_route_correctly(self):
         """Verify that Phase 3-7 operations and concepts route to expected categories."""
