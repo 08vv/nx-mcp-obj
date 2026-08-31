@@ -10,25 +10,9 @@ geometry state that was previously computed by hand in reconcile_phase4_ids.py:
 
 import json
 import os
-import socket
 import sys
 import tempfile
 import time
-
-# Probe socket immediately to configure mock mode if bridge is down
-def _probe_socket(port=43210):
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.5)
-        res = s.connect_ex(("127.0.0.1", port))
-        s.close()
-        return res == 0
-    except Exception:
-        return False
-
-IS_LIVE = _probe_socket(43210)
-if not IS_LIVE:
-    os.environ["NX_MCP_USE_MOCK_NXOPEN"] = "1"
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 import nx_mcp.server  # Ensures all MCP tools are registered in ToolRegistry
@@ -46,10 +30,12 @@ from nx_mcp.tools.state_tools import (
 def run_tests():
     print("=== STARTING PHASE 6 GEOMETRY DEPENDENCY GRAPH VERIFICATION ===")
 
-    if IS_LIVE:
+    probe = runner.call_nx("ping", {})
+    if probe.get("ok"):
         print("[INFO] Live Siemens NX 2206 socket bridge is connected.")
     else:
-        print("[INFO] Live socket bridge not available; running in deterministic mock mode.")
+        print(f"[INFO] Live socket bridge not available ({probe.get('error')}); running in mock mode.")
+        os.environ["NX_MCP_USE_MOCK_NXOPEN"] = "1"
 
     temp_dir = tempfile.mkdtemp(prefix="nx_p6_test_")
     part_path = os.path.join(temp_dir, f"phase6_part_{int(time.time()*1000)}.prt")
@@ -116,7 +102,7 @@ def run_tests():
                 "op": "pattern",
                 "params": {
                     "feature_ref": "$hole1.feature_id",
-                    "pattern_type": "circular",
+                    "mode": "circular",
                     "count": 4,
                     "angle_total": 360.0,
                     "axis": "Z",
