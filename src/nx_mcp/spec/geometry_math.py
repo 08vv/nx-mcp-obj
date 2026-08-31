@@ -141,3 +141,34 @@ def offset_point_along_vector(
     new_x = x + distance * math.cos(angle_rad)
     new_y = y + distance * math.sin(angle_rad)
     return [round(new_x, 10), round(new_y, 10)]
+
+
+@_register
+def lerp(a: float, b: float, t: float) -> float:
+    """Linearly interpolate between a and b at parameter t.
+
+    :param a: Start value (at t=0).
+    :param b: End value (at t=1).
+    :param t: Interpolation factor (0.0 to 1.0, but extrapolates linearly beyond).
+    """
+    val = float(a) + float(t) * (float(b) - float(a))
+    return round(val, 10)
+
+
+@_register
+def deg_to_rad(degrees: float) -> float:
+    """Convert angle in degrees to radians.
+
+    :param degrees: Angle in degrees.
+    """
+    return round(math.radians(float(degrees)), 10)
+
+
+@_register
+def rad_to_deg(radians: float) -> float:
+    """Convert angle in radians to degrees.
+
+    :param radians: Angle in radians.
+    """
+    return round(math.degrees(float(radians)), 10)
+

@@ -8,6 +8,9 @@ from nx_mcp.spec.geometry_math import (
     bolt_circle,
     linear_spacing,
     offset_point_along_vector,
+    lerp,
+    deg_to_rad,
+    rad_to_deg,
     GEOMETRY_FUNCTIONS,
 )
 
@@ -157,6 +160,30 @@ class TestOffsetPointAlongVector:
         assert abs(result[1] - 1.0) < 1e-9
 
 
+class TestLerp:
+    def test_midpoint(self):
+        assert abs(lerp(10.0, 20.0, 0.5) - 15.0) < 1e-9
+
+    def test_start_and_end(self):
+        assert abs(lerp(0.0, 100.0, 0.0) - 0.0) < 1e-9
+        assert abs(lerp(0.0, 100.0, 1.0) - 100.0) < 1e-9
+
+    def test_extrapolation(self):
+        assert abs(lerp(0.0, 50.0, 2.0) - 100.0) < 1e-9
+
+
+class TestAngleConversions:
+    def test_deg_to_rad(self):
+        assert abs(deg_to_rad(180.0) - math.pi) < 1e-9
+        assert abs(deg_to_rad(90.0) - (math.pi / 2.0)) < 1e-9
+        assert abs(deg_to_rad(0.0)) < 1e-9
+
+    def test_rad_to_deg(self):
+        assert abs(rad_to_deg(math.pi) - 180.0) < 1e-9
+        assert abs(rad_to_deg(math.pi / 2.0) - 90.0) < 1e-9
+        assert abs(rad_to_deg(0.0)) < 1e-9
+
+
 class TestRegistry:
     def test_all_functions_registered(self):
         assert "polar_to_cartesian" in GEOMETRY_FUNCTIONS
@@ -164,4 +191,8 @@ class TestRegistry:
         assert "bolt_circle" in GEOMETRY_FUNCTIONS
         assert "linear_spacing" in GEOMETRY_FUNCTIONS
         assert "offset_point_along_vector" in GEOMETRY_FUNCTIONS
-        assert len(GEOMETRY_FUNCTIONS) == 5
+        assert "lerp" in GEOMETRY_FUNCTIONS
+        assert "deg_to_rad" in GEOMETRY_FUNCTIONS
+        assert "rad_to_deg" in GEOMETRY_FUNCTIONS
+        assert len(GEOMETRY_FUNCTIONS) == 8
+
