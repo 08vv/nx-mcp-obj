@@ -172,9 +172,83 @@ def run_tests():
     assert len(report["executed_nodes"]) == 9
     assert "mounting_profile" in report["symbol_table"]
     assert "profile_id" in report["symbol_table"]["mounting_profile"]
+    assert "fillet" in report["symbol_table"]
+    assert "feature_id" in report["symbol_table"]["fillet"], "Fillet must produce a resolvable feature_id!"
+    assert "body_id" in report["symbol_table"]["fillet"], "Fillet must produce a resolvable body_id!"
     assert inspect.get("body_count", 0) >= 1
 
-    print("\n[SUCCESS] PHASE 5 DETERMINISTIC MATH FULLY VERIFIED LIVE IN NX 2206!")
+    print(f"\n[PASS] Fillet symbols verified: {report['symbol_table']['fillet']}")
+
+    # ── Negative Tests: Confirm Offline Validation Rejections (Fail-Closed) ──
+    print("\n5. Testing Negative Validation Rejections (Pre-Flight Safety)...")
+
+    # Negative 1: $fn: shape mismatch (array into scalar diameter)
+    bad_shape_spec = {
+        "part_name": "bad_shape",
+        "nodes": [
+            {
+                "id": "bad_hole",
+                "op": "add_hole",
+                "params": {
+                    "x": 0.0, "y": 0.0, "z": 0.0,
+                    "diameter": "$fn:bolt_circle(count=4, pcd=50.0)",  # Array into scalar!
+                    "depth": 10.0,
+                    "target": "body_1",
+                },
+            }
+        ],
+    }
+    try:
+        execute_spec(bad_shape_spec)
+        assert False, "Should have rejected $fn: array-into-scalar shape mismatch!"
+    except ValueError as e:
+        print(f"   [PASS] Bad shape rejected: {e}")
+        assert "expects a number, but $fn:bolt_circle(...) produces an array" in str(e)
+
+    # Negative 2: $calc: referencing non-existent node
+    bad_calc_spec = {
+        "part_name": "bad_calc",
+        "nodes": [
+            {
+                "id": "box",
+                "op": "create_cuboid",
+                "params": {
+                    "length": "$calc:$nonexistent_node.width * 2",
+                    "width": 50.0,
+                    "height": 20.0,
+                },
+            }
+        ],
+    }
+    try:
+        execute_spec(bad_calc_spec)
+        assert False, "Should have rejected $calc: non-existent node reference!"
+    except ValueError as e:
+        print(f"   [PASS] Bad calc ref rejected: {e}")
+        assert "references non-existent node 'nonexistent_node'" in str(e)
+
+    # Negative 3: $fn: missing required argument
+    bad_fn_spec = {
+        "part_name": "bad_fn",
+        "nodes": [
+            {
+                "id": "prof",
+                "op": "create_profile",
+                "params": {
+                    "points": "$fn:bolt_circle(pcd=50.0)",  # Missing 'count'
+                    "plane": "XY",
+                },
+            }
+        ],
+    }
+    try:
+        execute_spec(bad_fn_spec)
+        assert False, "Should have rejected $fn: missing required argument!"
+    except ValueError as e:
+        print(f"   [PASS] Bad fn call rejected: {e}")
+        assert "missing required argument 'count'" in str(e)
+
+    print("\n[SUCCESS] ALL PHASE 5 POSITIVE & NEGATIVE VALIDATION CHECKS VERIFIED LIVE IN NX 2206!")
 
 if __name__ == "__main__":
     run_tests()

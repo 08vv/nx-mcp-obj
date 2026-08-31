@@ -150,3 +150,36 @@ def test_fn_linear_spacing_resolves():
     report = execute_spec(spec_data)
     assert report["ok"] is True
 
+
+def test_fillet_and_chamfer_produces_symbols():
+    """Verify that fillet and chamfer nodes populate feature_id and body_id in symbol table."""
+    spec_data = {
+        "part_name": "fillet_chamfer_symbols",
+        "nodes": [
+            {
+                "id": "base",
+                "op": "create_cuboid",
+                "params": {"length": 100.0, "width": 60.0, "height": 20.0},
+            },
+            {
+                "id": "blend",
+                "op": "add_fillet",
+                "params": {"radius": 2.0, "body": "$base.body_id"},
+            },
+            {
+                "id": "bevel",
+                "op": "add_chamfer",
+                "params": {"offset": 1.0, "body": "$blend.body_id"},
+            },
+        ],
+    }
+    report = execute_spec(spec_data)
+    assert report["ok"] is True
+    assert "blend" in report["symbol_table"]
+    assert "feature_id" in report["symbol_table"]["blend"]
+    assert "body_id" in report["symbol_table"]["blend"]
+    assert "bevel" in report["symbol_table"]
+    assert "feature_id" in report["symbol_table"]["bevel"]
+    assert "body_id" in report["symbol_table"]["bevel"]
+
+

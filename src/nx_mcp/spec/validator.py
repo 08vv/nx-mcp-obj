@@ -18,6 +18,8 @@ from .schema import (
     parse_symbolic_ref,
     NODE_REF_PATTERN,
     EXPR_REF_PATTERN,
+    EMBEDDED_NODE_REF_PATTERN,
+    EMBEDDED_EXPR_REF_PATTERN,
 )
 
 # Standard known output fields produced by NX-MCP operations
@@ -289,7 +291,7 @@ def _validate_calc_refs_recursive(node_id: str, data: Any, node_map: Dict[str, S
                 )
             else:
                 # Validate embedded $nodeId.field references inside the calc expression
-                for m in NODE_REF_PATTERN.finditer(expr):
+                for m in EMBEDDED_NODE_REF_PATTERN.finditer(expr):
                     target_id, field_name = m.group(1), m.group(2)
                     if target_id not in node_map:
                         errors.append(
@@ -315,7 +317,7 @@ def _validate_calc_refs_recursive(node_id: str, data: Any, node_map: Dict[str, S
                                 )
                             )
                 # Validate embedded $expr:NAME references (syntactic only — value requires NX)
-                for m in EXPR_REF_PATTERN.finditer(expr):
+                for m in EMBEDDED_EXPR_REF_PATTERN.finditer(expr):
                     pass  # Syntactically valid; runtime resolution via bridge
         elif is_fn_ref(data):
             _validate_fn_ref(node_id, data, errors)
@@ -381,11 +383,102 @@ def _validate_fn_ref(node_id: str, val: str, errors: List[ValidationError]):
             )
 
 
+def _get_fn_return_type(fn_name: str) -> Optional[str]:
+    """Inspect the registered geometry function to determine its return type shape.
+
+    Returns 'number', 'array', or 'object'.
+    """
+    import inspect
+    import typing
+    from .geometry_math import GEOMETRY_FUNCTIONS
+
+    fn = GEOMETRY_FUNCTIONS.get(fn_name)
+    if not fn:
+        return None
+    sig = inspect.signature(fn)
+    ret = sig.return_annotation
+    if ret is inspect.Signature.empty:
+        return None
+    origin = typing.get_origin(ret)
+    if origin in (list, tuple) or ret in (list, tuple) or (isinstance(ret, type) and issubclass(ret, (list, tuple))):
+        return "array"
+    if origin is dict or ret is dict or (isinstance(ret, type) and issubclass(ret, dict)):
+        return "object"
+    if ret in (int, float) or (isinstance(ret, type) and issubclass(ret, (int, float))):
+        return "number"
+    return None
+
+
 def _validate_param_type(node_id: str, param_name: str, val: Any, expected_type: Optional[str], errors: List[ValidationError]):
-    """Validate literal value type against schema (references bypass type checks as they resolve at runtime)."""
-    if val is None or is_symbolic_ref(val) or is_expr_ref(val) or is_calc_ref(val) or is_fn_ref(val):
+    """Validate literal value and expression return shapes against schema.
+
+    Performs shape checks on $fn:... and $calc:... to catch type mismatches before execution.
+    """
+    if val is None or is_symbolic_ref(val) or is_expr_ref(val):
         return
 
+    # Check shape for $calc: (always returns a scalar number)
+    if is_calc_ref(val):
+        if expected_type == "array":
+            errors.append(
+                ValidationError(
+                    node_id,
+                    param_name,
+                    f"Parameter '{param_name}' in node '{node_id}' expects a list/array, but $calc:... produces a scalar number."
+                )
+            )
+        elif expected_type == "object":
+            errors.append(
+                ValidationError(
+                    node_id,
+                    param_name,
+                    f"Parameter '{param_name}' in node '{node_id}' expects an object/dict, but $calc:... produces a scalar number."
+                )
+            )
+        elif expected_type == "boolean":
+            errors.append(
+                ValidationError(
+                    node_id,
+                    param_name,
+                    f"Parameter '{param_name}' in node '{node_id}' expects a boolean, but $calc:... produces a scalar number."
+                )
+            )
+        return
+
+    # Check shape for $fn: (matches declared return type of geometry function)
+    if is_fn_ref(val):
+        parsed = parse_fn_ref(val)
+        if parsed:
+            fn_name, _ = parsed
+            fn_ret_type = _get_fn_return_type(fn_name)
+            if fn_ret_type and expected_type:
+                if expected_type == "number" and fn_ret_type != "number":
+                    errors.append(
+                        ValidationError(
+                            node_id,
+                            param_name,
+                            f"Parameter '{param_name}' in node '{node_id}' expects a number, but $fn:{fn_name}(...) produces an {fn_ret_type}."
+                        )
+                    )
+                elif expected_type == "array" and fn_ret_type != "array":
+                    errors.append(
+                        ValidationError(
+                            node_id,
+                            param_name,
+                            f"Parameter '{param_name}' in node '{node_id}' expects a list/array, but $fn:{fn_name}(...) produces an {fn_ret_type}."
+                        )
+                    )
+                elif expected_type == "object" and fn_ret_type != "object":
+                    errors.append(
+                        ValidationError(
+                            node_id,
+                            param_name,
+                            f"Parameter '{param_name}' in node '{node_id}' expects an object/dict, but $fn:{fn_name}(...) produces an {fn_ret_type}."
+                        )
+                    )
+        return
+
+    # Literal validation
     if expected_type == "number":
         if not isinstance(val, (int, float)) or isinstance(val, bool):
             errors.append(

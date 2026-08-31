@@ -7,9 +7,11 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 # Regex patterns for reference syntax
 # 1. Node output reference: $node_id.field_name (e.g. $n1.body_id, $n2.feature_id)
 NODE_REF_PATTERN = re.compile(r"^\$([a-zA-Z0-9_\-]+)\.([a-zA-Z0-9_]+)$")
+EMBEDDED_NODE_REF_PATTERN = re.compile(r"\$([a-zA-Z0-9_\-]+)\.([a-zA-Z0-9_]+)")
 
 # 2. Expression reference: $expr:NAME (e.g. $expr:CUBOID_1_L)
 EXPR_REF_PATTERN = re.compile(r"^\$expr:([a-zA-Z0-9_]+)$")
+EMBEDDED_EXPR_REF_PATTERN = re.compile(r"\$expr:([a-zA-Z0-9_]+)")
 
 # 3. Calc reference: $calc:EXPRESSION (e.g. $calc:100 / 2 - 5)
 CALC_REF_PATTERN = re.compile(r"^\$calc:(.*)$")
@@ -91,7 +93,7 @@ def extract_node_references(data: Any) -> List[Tuple[str, str]]:
         elif is_calc_ref(data):
             # Scan inside the calc expression for embedded $nodeId.field refs
             calc_body = parse_calc_ref(data) or ""
-            for m in NODE_REF_PATTERN.finditer(calc_body):
+            for m in EMBEDDED_NODE_REF_PATTERN.finditer(calc_body):
                 refs.append((m.group(1), m.group(2)))
     elif isinstance(data, dict):
         for v in data.values():

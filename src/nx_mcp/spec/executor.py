@@ -11,6 +11,8 @@ from .schema import (
     SpecNode,
     NODE_REF_PATTERN,
     EXPR_REF_PATTERN,
+    EMBEDDED_NODE_REF_PATTERN,
+    EMBEDDED_EXPR_REF_PATTERN,
     is_calc_ref,
     is_expr_ref,
     is_fn_ref,
@@ -177,37 +179,38 @@ class SpecExecutor:
                     raise SpecExecutionError(current_node_id, f"Empty $calc expression in '{val}'.")
                 # Pre-resolve any embedded $nodeId.field references inside the calc string
                 resolved_expr = calc_expr
-                for m in NODE_REF_PATTERN.finditer(calc_expr):
-                    ref_str = m.group(0)
+                for m in EMBEDDED_NODE_REF_PATTERN.finditer(calc_expr):
+                    ref_str = m.group(0)  # e.g. "$n1.width"
                     target_id, field_name = m.group(1), m.group(2)
                     if target_id not in self.symbol_table:
                         raise SpecExecutionError(
                             current_node_id,
-                            f"Cannot resolve embedded reference '${target_id}.{field_name}' in $calc expression: node '{target_id}' has not produced outputs yet."
+                            f"Cannot resolve embedded reference '{ref_str}' in $calc expression: node '{target_id}' has not produced outputs yet."
                         )
                     resolved_val = self.symbol_table[target_id].get(field_name)
                     if resolved_val is None:
                         raise SpecExecutionError(
                             current_node_id,
-                            f"Cannot resolve embedded reference '${target_id}.{field_name}' in $calc expression: field not found."
+                            f"Cannot resolve embedded reference '{ref_str}' in $calc expression: field not found."
                         )
-                    resolved_expr = resolved_expr.replace(f"${ref_str}", str(resolved_val))
+                    resolved_expr = resolved_expr.replace(ref_str, str(resolved_val))
                 # Pre-resolve any embedded $expr:NAME references via bridge round-trip
-                for m in EXPR_REF_PATTERN.finditer(resolved_expr):
+                for m in EMBEDDED_EXPR_REF_PATTERN.finditer(resolved_expr):
+                    ref_str = m.group(0)  # e.g. "$expr:CUBOID_1_L"
                     expr_name = m.group(1)
                     if not _use_mock_nxopen():
                         nx_res = runner.call_nx("list_expressions", {})
                         if nx_res.get("ok") and expr_name in nx_res.get("expressions", {}):
                             expr_val = nx_res["expressions"][expr_name]
-                            resolved_expr = resolved_expr.replace(f"$expr:{expr_name}", str(expr_val))
+                            resolved_expr = resolved_expr.replace(ref_str, str(expr_val))
                         else:
                             raise SpecExecutionError(
                                 current_node_id,
-                                f"Cannot resolve $expr:{expr_name} in $calc expression: expression not found in NX."
+                                f"Cannot resolve {ref_str} in $calc expression: expression not found in NX."
                             )
                     else:
                         # Mock mode: treat expr refs as 1.0 placeholder
-                        resolved_expr = resolved_expr.replace(f"$expr:{expr_name}", "1.0")
+                        resolved_expr = resolved_expr.replace(ref_str, "1.0")
 
                 try:
                     return safe_calc_eval(resolved_expr)

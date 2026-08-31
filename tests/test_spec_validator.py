@@ -176,3 +176,106 @@ def test_loft_to_shell_chain_validation():
     res = validate_spec(spec_data)
     assert res["valid"] is True
     assert res["topological_order"] == ["sec1", "sec2", "loft1", "shell1"]
+
+
+def test_fn_shape_mismatch_rejected():
+    """Verify that passing an array-returning $fn: to a scalar number parameter is rejected."""
+    spec_data = {
+        "part_name": "shape_mismatch",
+        "nodes": [
+            {
+                "id": "n1",
+                "op": "create_cuboid",
+                "params": {
+                    "length": "$fn:bolt_circle(count=4, pcd=50.0)",  # Array into scalar number!
+                    "width": 50.0,
+                    "height": 20.0,
+                },
+            }
+        ],
+    }
+    res = validate_spec(spec_data)
+    assert res["valid"] is False
+    assert any("expects a number, but $fn:bolt_circle(...) produces an array" in e["message"] for e in res["errors"])
+
+
+def test_calc_shape_mismatch_rejected():
+    """Verify that passing a scalar-returning $calc: to an array parameter is rejected."""
+    spec_data = {
+        "part_name": "calc_shape_mismatch",
+        "nodes": [
+            {
+                "id": "n1",
+                "op": "create_profile",
+                "params": {
+                    "points": "$calc:50.0",  # Scalar number into array!
+                    "plane": "XY",
+                },
+            }
+        ],
+    }
+    res = validate_spec(spec_data)
+    assert res["valid"] is False
+    assert any("expects a list/array, but $calc:... produces a scalar number" in e["message"] for e in res["errors"])
+
+
+def test_calc_embedded_invalid_reference_rejected():
+    """Verify that $calc: referencing a non-existent node fails validation."""
+    spec_data = {
+        "part_name": "calc_bad_node",
+        "nodes": [
+            {
+                "id": "n1",
+                "op": "create_cuboid",
+                "params": {
+                    "length": "$calc:$nonexistent_node.body_id + 10",
+                    "width": 50.0,
+                    "height": 20.0,
+                },
+            }
+        ],
+    }
+    res = validate_spec(spec_data)
+    assert res["valid"] is False
+    assert any("references non-existent node 'nonexistent_node'" in e["message"] for e in res["errors"])
+
+
+def test_fn_missing_required_arg_rejected():
+    """Verify that $fn: missing a required argument fails validation."""
+    spec_data = {
+        "part_name": "fn_missing_arg",
+        "nodes": [
+            {
+                "id": "n1",
+                "op": "create_profile",
+                "params": {
+                    "points": "$fn:bolt_circle(pcd=50.0)",  # Missing required 'count'
+                    "plane": "XY",
+                },
+            }
+        ],
+    }
+    res = validate_spec(spec_data)
+    assert res["valid"] is False
+    assert any("missing required argument 'count'" in e["message"] for e in res["errors"])
+
+
+def test_fn_unknown_function_rejected():
+    """Verify that $fn: referencing an unknown function name fails validation."""
+    spec_data = {
+        "part_name": "fn_unknown",
+        "nodes": [
+            {
+                "id": "n1",
+                "op": "create_profile",
+                "params": {
+                    "points": "$fn:make_gear_teeth(n=20)",
+                    "plane": "XY",
+                },
+            }
+        ],
+    }
+    res = validate_spec(spec_data)
+    assert res["valid"] is False
+    assert any("Unknown geometry function 'make_gear_teeth'" in e["message"] for e in res["errors"])
+

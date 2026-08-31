@@ -414,6 +414,7 @@ def _remember_feature(feature):
                 delta_face_tags.append(ent_tag)
 
     fid = _register_feature(feature)
+    _state["last_feature_id"] = fid
     _state["features"][fid]["edge_tags"] = delta_edge_tags
     _state["features"][fid]["face_tags"] = delta_face_tags
     _state["features"][name.lower()] = _state["features"][fid]
@@ -438,6 +439,7 @@ def _register_body(body):
     if tag:
         _state.setdefault("object_to_id", {})[tag] = body_id
     _state["last_body"] = body
+    _state["last_body_id"] = body_id
     name = _body_name(body)
     _state["bodies"][name.lower()] = body
     return body_id
@@ -2650,7 +2652,15 @@ def add_chamfer(offset, body="last", edges="outer_edges"):
         builder.Destroy()
 
     fit_view()
-    return {"ok": True, "message": f"Chamfer {offset}mm on {len(selected_edges)} edges"}
+    target_body = _resolve_body(body)
+    bid = _state.get("object_to_id", {}).get(getattr(target_body, "Tag", None), _state.get("last_body_id", "body_1"))
+    fid = _state.get("object_to_id", {}).get(getattr(feature, "Tag", None), _state.get("last_feature_id", "feature_1"))
+    return {
+        "ok": True,
+        "message": f"Chamfer {offset}mm on {len(selected_edges)} edges",
+        "feature_id": fid,
+        "body_id": bid,
+    }
 
 
 def add_fillet(radius, body="last", edges="outer_edges"):
@@ -2692,7 +2702,15 @@ def add_fillet(radius, body="last", edges="outer_edges"):
         builder.Destroy()
 
     fit_view()
-    return {"ok": True, "message": f"Fillet R{radius} on {len(selected_edges)} edges"}
+    target_body = _resolve_body(body)
+    bid = _state.get("object_to_id", {}).get(getattr(target_body, "Tag", None), _state.get("last_body_id", "body_1"))
+    fid = _state.get("object_to_id", {}).get(getattr(feature, "Tag", None), _state.get("last_feature_id", "feature_1"))
+    return {
+        "ok": True,
+        "message": f"Fillet R{radius} on {len(selected_edges)} edges",
+        "feature_id": fid,
+        "body_id": bid,
+    }
 
 
 def _subtract_cylinder_hole(target_body, x, y, z, diameter, depth, direction):
