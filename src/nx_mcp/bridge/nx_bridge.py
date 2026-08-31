@@ -2327,6 +2327,9 @@ def create_cuboid(length, width, height, x=0.0, y=0.0, z=0.0):
         "message": f"Cuboid {length}x{width}x{height}mm at ({x},{y},{z})",
         "body_id": bid,
         "feature_id": fid,
+        "consumed": [],
+        "produced": [bid] if bid else [],
+        "modified": [],
     }
 
 
@@ -2417,6 +2420,9 @@ def create_cylinder(radius, height, x=0.0, y=0.0, z=0.0, direction="Z"):
         "message": f"Cylinder R{radius} height {height} at ({x},{y},{z})",
         "body_id": bid,
         "feature_id": fid,
+        "consumed": [],
+        "produced": [bid] if bid else [],
+        "modified": [],
     }
 
 
@@ -2601,6 +2607,9 @@ def _boolean_operation(operation, target="last", tool="last"):
         "message": f"Boolean {operation_name}: {_body_name(target_body)} with {_body_name(tool_body)}",
         "body_id": target_id,
         "feature_id": fid,
+        "consumed": [tool_id] if tool_id else [],
+        "modified": [target_id] if target_id else [],
+        "produced": [],
     }
 
 
@@ -2660,6 +2669,9 @@ def add_chamfer(offset, body="last", edges="outer_edges"):
         "message": f"Chamfer {offset}mm on {len(selected_edges)} edges",
         "feature_id": fid,
         "body_id": bid,
+        "consumed": [],
+        "modified": [bid] if bid else [],
+        "produced": [],
     }
 
 
@@ -2710,6 +2722,9 @@ def add_fillet(radius, body="last", edges="outer_edges"):
         "message": f"Fillet R{radius} on {len(selected_edges)} edges",
         "feature_id": fid,
         "body_id": bid,
+        "consumed": [],
+        "modified": [bid] if bid else [],
+        "produced": [],
     }
 
 
@@ -3527,6 +3542,7 @@ def pattern_circular(
         builder.Destroy()
 
     fit_view()
+    source_fid = _state.get("object_to_id", {}).get(getattr(source_feature, "Tag", None), str(feature_name))
     return {
         "ok": True,
         "message": (
@@ -3536,6 +3552,9 @@ def pattern_circular(
         "feature_id": fid,
         "body_ids": pattern_bodies,
         "body_id": pattern_bodies[0] if pattern_bodies else _state.get("object_to_id", {}).get(getattr(_state.get("last_body"), "Tag", None), "body_1"),
+        "consumed": [source_fid] if source_fid else [],
+        "produced": pattern_bodies,
+        "modified": [],
     }
 
 
@@ -3610,6 +3629,9 @@ def create_profile(points, plane="XY", closed=True):
         "profile_id": profile_id,
         "curve_ids": curve_ids,
         "curve_count": len(lines),
+        "consumed": [],
+        "produced": [profile_id] + curve_ids,
+        "modified": [],
     }
 
 
@@ -3737,6 +3759,9 @@ def loft(profile_ids, guide_curve_ids=None, body_type="solid"):
         "message": f"Created loft feature '{fid}' through {len(profile_ids)} sections",
         "body_id": bid,
         "feature_id": fid,
+        "consumed": list(profile_ids),
+        "produced": [bid] if bid else [],
+        "modified": [],
     }
 
 
@@ -3889,6 +3914,9 @@ def shell(body_id="last", thickness=2.0, faces_to_remove=None):
         "message": f"Shelled body '{bid}' with thickness {thickness}mm (feature: {fid})",
         "body_id": bid,
         "feature_id": fid,
+        "consumed": [],
+        "modified": [bid] if bid else [],
+        "produced": [],
     }
 
 
