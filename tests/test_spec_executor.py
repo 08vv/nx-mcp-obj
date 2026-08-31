@@ -183,3 +183,61 @@ def test_fillet_and_chamfer_produces_symbols():
     assert "body_id" in report["symbol_table"]["bevel"]
 
 
+def test_executor_populates_dependency_graph():
+    """Verify that SpecExecutor populates the GeometryDependencyGraph and includes it in report."""
+    spec_data = {
+        "part_name": "graph_exec_test",
+        "nodes": [
+            {
+                "id": "sec1",
+                "op": "create_profile",
+                "params": {"points": [[0.0, 0.0], [50.0, 0.0], [50.0, 50.0], [0.0, 50.0]], "plane": "XY"},
+            },
+            {
+                "id": "sec2",
+                "op": "create_profile",
+                "params": {"points": [[10.0, 10.0, 30.0], [40.0, 10.0, 30.0], [40.0, 40.0, 30.0], [10.0, 40.0, 30.0]], "plane": "XY"},
+            },
+            {
+                "id": "loft1",
+                "op": "loft",
+                "params": {"profile_ids": ["$sec1.profile_id", "$sec2.profile_id"], "body_type": "solid"},
+            },
+            {
+                "id": "cut1",
+                "op": "add_hole",
+                "params": {"x": 25.0, "y": 25.0, "z": 0.0, "diameter": 10.0, "depth": 15.0, "target": "$loft1.body_id"},
+            },
+            {
+                "id": "shell1",
+                "op": "shell",
+                "params": {"body_id": "$loft1.body_id", "thickness": 2.0},
+            },
+        ],
+    }
+    report = execute_spec(spec_data)
+    assert report["ok"] is True
+    assert "dependency_graph" in report
+    graph_dict = report["dependency_graph"]
+    assert graph_dict["part_name"] == "graph_exec_test"
+    assert graph_dict["total_nodes"] >= 5
+    assert len(graph_dict["edges"]) >= 4
+
+    # Verify query tools work on the resulting session graph
+    from nx_mcp.tools.state_tools import get_dependency_graph, get_downstream, get_upstream, validate_dependency_graph
+
+    graph_res = get_dependency_graph()
+    assert not graph_res.is_error if hasattr(graph_res, "is_error") else True
+    assert "Geometry Dependency Graph" in str(graph_res)
+
+    val_res = validate_dependency_graph()
+    assert "VALID" in str(val_res)
+
+    # Check upstream of body_1
+    loft_body_id = report["symbol_table"]["loft1"]["body_id"]
+    upstream_res = get_upstream(loft_body_id)
+    assert not upstream_res.is_error if hasattr(upstream_res, "is_error") else True
+    assert loft_body_id in str(upstream_res)
+
+
+

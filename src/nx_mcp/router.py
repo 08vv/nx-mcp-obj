@@ -104,6 +104,8 @@ CATEGORY_TOOLS = {
         "set_view", "fit_view", "reset_nx_bridge", "take_screenshot",
         "list_features", "get_active_part", "get_last_operation_status",
         "list_feature_edges", "run_recipe", "run_spec",
+        "get_dependency_graph", "get_downstream", "get_upstream",
+        "validate_dependency_graph",
     ],
 }
 
@@ -157,7 +159,8 @@ CATEGORY_KEYWORDS = {
     "Utility": [
         "viewport", "top view", "front view", "right view", "iso view",
         "screenshot", "capture", "fit view", "zoom", "reset bridge",
-        "list features", "feature tree",
+        "list features", "feature tree", "dependency graph", "dependencies",
+        "upstream", "downstream", "graph integrity",
     ],
 }
 

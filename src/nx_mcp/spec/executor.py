@@ -25,6 +25,7 @@ from .schema import (
 from .calc import safe_calc_eval, CalcEvalError
 from .geometry_math import GEOMETRY_FUNCTIONS
 from .validator import validate_spec
+from ..state.dependency_graph import GeometryDependencyGraph, get_session_graph, reset_session_graph
 
 
 class SpecExecutionError(RuntimeError):
@@ -51,6 +52,7 @@ class SpecExecutor:
         self.failed_node: Optional[str] = None
         self.failure_error: Optional[str] = None
         self.status: str = "pending"  # pending, running, completed, failed
+        self.dependency_graph = GeometryDependencyGraph(part_name=self.spec.part_name)
 
         if auto_validate:
             val_res = validate_spec(self.spec)
@@ -94,6 +96,10 @@ class SpecExecutor:
             self.symbol_table[node_id] = node_symbols
             self.node_results[node_id] = res
             self.executed_nodes.append(node_id)
+
+            # 4. Record into dependency graph
+            self._record_node_dependencies(node, res, resolved_params)
+
             self.current_step_index += 1
 
             if self.current_step_index >= len(self.topological_order):
@@ -142,7 +148,61 @@ class SpecExecutor:
             "failure_error": self.failure_error,
             "symbol_table": dict(self.symbol_table),
             "node_results": dict(self.node_results),
+            "dependency_graph": self.dependency_graph.to_dict(),
         }
+
+    def _record_node_dependencies(self, node: SpecNode, res: Dict[str, Any], resolved_params: Dict[str, Any]) -> None:
+        """Record the execution outcome of a node into the geometry dependency graph."""
+        consumed = list(res.get("consumed", []))
+        produced = list(res.get("produced", []))
+        modified = list(res.get("modified", []))
+        feature_id = res.get("feature_id")
+
+        # Fallback / Server-side inference for mock mode or tools without explicit tracking
+        if not produced and not consumed and not modified:
+            if "body_id" in res:
+                if node.op in {"create_cuboid", "create_cylinder", "create_sphere", "create_block", "extrude", "loft"}:
+                    produced.append(res["body_id"])
+                elif node.op in {"add_hole", "boolean_subtract", "boolean_unite", "boolean_intersect", "shell", "add_fillet", "add_chamfer", "edge_blend"}:
+                    modified.append(res["body_id"])
+            if "body_ids" in res:
+                produced.extend(res["body_ids"])
+            if "profile_id" in res:
+                produced.append(res["profile_id"])
+            if "curve_ids" in res:
+                produced.extend(res["curve_ids"])
+
+            if node.op == "loft" and "profile_ids" in resolved_params:
+                consumed.extend(resolved_params["profile_ids"])
+            elif node.op in {"boolean_subtract", "boolean_unite", "boolean_intersect"}:
+                if "tool" in resolved_params:
+                    consumed.append(resolved_params["tool"])
+                if "target" in resolved_params and resolved_params["target"] not in modified:
+                    modified.append(resolved_params["target"])
+            elif node.op == "pattern" and "feature_ref" in resolved_params:
+                consumed.append(resolved_params["feature_ref"])
+
+        # Also update global session graph
+        session_graph = get_session_graph()
+
+        self.dependency_graph.record_operation(
+            op=node.op,
+            spec_node_id=node.id,
+            produced=produced,
+            consumed=consumed,
+            modified=modified,
+            feature_id=feature_id,
+            metadata=resolved_params,
+        )
+        session_graph.record_operation(
+            op=node.op,
+            spec_node_id=node.id,
+            produced=produced,
+            consumed=consumed,
+            modified=modified,
+            feature_id=feature_id,
+            metadata=resolved_params,
+        )
 
     def _resolve_params(self, params: Dict[str, Any], current_node_id: str) -> Dict[str, Any]:
         """Recursively resolve symbolic and expression references in a parameter dictionary."""

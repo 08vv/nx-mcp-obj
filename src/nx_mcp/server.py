@@ -15,6 +15,7 @@ from nx_mcp.tools import (
     utility,
     discovery,
     recipe,
+    state_tools,
 )
 from nx_mcp.tools.registry import ToolRegistry
 
