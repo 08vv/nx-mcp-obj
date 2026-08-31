@@ -98,8 +98,9 @@ def verify_geometry(
         try:
             inspect_res = runner.call_nx("inspect_part", {})
             if inspect_res.get("ok"):
-                face_count = inspect_res.get("face_count", 0)
-                edge_count = inspect_res.get("edge_count", 0)
+                bodies = inspect_res.get("bodies", [])
+                face_count = sum(b.get("face_count", 0) for b in bodies)
+                edge_count = sum(b.get("edge_count", 0) for b in bodies)
                 report.metrics["face_count"] = face_count
                 report.metrics["edge_count"] = edge_count
 
