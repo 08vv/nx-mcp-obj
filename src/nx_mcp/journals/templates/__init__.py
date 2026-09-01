@@ -1,0 +1,1 @@
+"""Template journal scripts for parametric parts."""

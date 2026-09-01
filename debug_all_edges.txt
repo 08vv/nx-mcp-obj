@@ -1,0 +1,4 @@
+EDGE 57686 error: 'NXOpen.UF.Eval' object has no attribute 'AskPos'
+EDGE 57687 error: 'NXOpen.UF.Eval' object has no attribute 'AskPos'
+EDGE 57749 error: 'NXOpen.UF.Eval' object has no attribute 'AskPos'
+EDGE 57773 error: 'NXOpen.UF.Eval' object has no attribute 'AskPos'

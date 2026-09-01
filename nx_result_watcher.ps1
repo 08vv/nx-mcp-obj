@@ -1,6 +1,13 @@
-$root = "C:\Users\HP\nx-mcp"
+$root = $PSScriptRoot
+if (-not $root) { $root = Split-Path -Parent $MyInvocation.MyCommand.Definition }
 $marker = Join-Path $root "latest_nx_result.txt"
-$router = "C:\Program Files\Siemens\NX2206\NXBIN\ugs_router.exe"
+
+$ugiiBase = $env:UGII_BASE_DIR
+if ($ugiiBase -and (Test-Path $ugiiBase)) {
+    $router = Join-Path $ugiiBase "NXBIN\ugs_router.exe"
+} else {
+    $router = "C:\Program Files\Siemens\NX2206\NXBIN\ugs_router.exe"
+}
 $last = ""
 
 Write-Host "NX result watcher running. Watching: $marker"

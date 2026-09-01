@@ -72,6 +72,13 @@ def _get_uf():
             pass
     return UF_SESSION
 
+
+def _get_uf_modl():
+    uf = _get_uf()
+    if uf is None:
+        return None
+    return getattr(uf, "Modl", None) or getattr(uf, "Modeling", None)
+
 ACTIVE_SKETCH_PLANE = "XY"
 _state = {
     "last_curves": [],
@@ -387,11 +394,11 @@ def _remember_feature(feature):
             if bodies:
                 b = bodies[0]
                 if _is_real_solid_body(b):
+                    body = b
                     if _state.get("last_body") is None:
-                        body = b
                         _register_body(body)
                     else:
-                        body = _state["last_body"]
+                        _state["last_body"] = body
         except Exception:
             pass
 
@@ -618,18 +625,33 @@ def _resolve_feature(reference="last"):
 
     raise SelectionError(f"Could not resolve feature reference: {reference}")
 
-
 def _point_tuple(point):
-    if isinstance(point, (tuple, list)):
-        return float(point[0]), float(point[1]), float(point[2])
-    return float(point.X), float(point.Y), float(point.Z)
+    if point is None:
+        return (0.0, 0.0, 0.0)
+    try:
+        if hasattr(point, "__len__") and len(point) >= 3:
+            return (float(point[0]), float(point[1]), float(point[2]))
+    except Exception:
+        pass
+    try:
+        return (float(point.X), float(point.Y), float(point.Z))
+    except Exception:
+        pass
+    return (0.0, 0.0, 0.0)
 
 
-def _body_bounds(body):
-    uf = _get_uf()
-    if uf is not None:
+def _parse_bbox_result(bbox):
+    """Parse bounding box return value from various NXOpen UF methods."""
+    if bbox is None:
+        return None
+    try:
+        length = len(bbox)
+    except Exception:
+        return None
+
+    # Shape 1: 6-element sequence [min_x, min_y, min_z, max_x, max_y, max_z]
+    if length == 6:
         try:
-            bbox = uf.Modl.AskBoundingBox(body.Tag)
             return (
                 (float(bbox[0]), float(bbox[1]), float(bbox[2])),
                 (float(bbox[3]), float(bbox[4]), float(bbox[5])),
@@ -637,14 +659,116 @@ def _body_bounds(body):
         except Exception:
             pass
 
-    points = []
-    for edge in list(body.GetEdges() or []):
+    # Shape 2: 2-element sequence [(min_x, min_y, min_z), (max_x, max_y, max_z)]
+    if length == 2:
         try:
-            if uf is not None:
-                pt1, pt2, _vertex_count = uf.Modeling.AskEdgeVerts(edge.Tag)
-                points.extend([_point_tuple(pt1), _point_tuple(pt2)])
+            p1 = _point_tuple(bbox[0])
+            p2 = _point_tuple(bbox[1])
+            return (
+                (min(p1[0], p2[0]), min(p1[1], p2[1]), min(p1[2], p2[2])),
+                (max(p1[0], p2[0]), max(p1[1], p2[1]), max(p1[2], p2[2])),
+            )
+        except Exception:
+            pass
+
+    # Shape 3: UF_MODL format (min_corner, directions_matrix, distances)
+    if length == 3:
+        try:
+            p_min = _point_tuple(bbox[0])
+            dists = _point_tuple(bbox[2])
+            p_max = (p_min[0] + abs(dists[0]), p_min[1] + abs(dists[1]), p_min[2] + abs(dists[2]))
+            return (
+                (min(p_min[0], p_max[0]), min(p_min[0], p_max[1]), min(p_min[2], p_max[2])),
+                (max(p_min[0], p_max[0]), max(p_min[1], p_max[1]), max(p_min[2], p_max[2])),
+            )
+        except Exception:
+            pass
+    return None
+
+
+def _body_bounds(body):
+    mod = _get_uf_modl()
+    if mod is not None:
+        tag = getattr(body, "Tag", None)
+        if tag is not None:
+            for mname in ("AskBoundingBox", "AskBoundingBoxExact", "AskBbox", "AskBodyBoundingBox", "AskObjectBoundingBox"):
+                if hasattr(mod, mname):
+                    try:
+                        fn = getattr(mod, mname)
+                        try:
+                            raw = fn(tag)
+                        except TypeError:
+                            raw = fn(tag, getattr(NXOpen.Tag, "Null", 0) if hasattr(NXOpen, "Tag") else 0)
+                        res = _parse_bbox_result(raw)
+                        if res is not None:
+                            return res
+                    except Exception:
+                        pass
+
+    # Fallback: check faces of the body
+    face_min = [float("inf"), float("inf"), float("inf")]
+    face_max = [float("-inf"), float("-inf"), float("-inf")]
+    found_face_bounds = False
+    faces = list(getattr(body, "GetFaces", lambda: [])() or [])
+    if faces and mod is not None:
+        for f in faces:
+            f_tag = getattr(f, "Tag", None)
+            if not f_tag:
+                continue
+            if hasattr(mod, "AskFaceData"):
+                try:
+                    data = mod.AskFaceData(f_tag)
+                    if len(data) > 3:
+                        f_res = _parse_bbox_result(data[3])
+                        if f_res is not None:
+                            (fmin, fmax) = f_res
+                            for i in range(3):
+                                face_min[i] = min(face_min[i], fmin[i])
+                                face_max[i] = max(face_max[i], fmax[i])
+                            found_face_bounds = True
+                except Exception:
+                    pass
+            if not found_face_bounds and hasattr(mod, "AskBoundingBox"):
+                try:
+                    f_res = _parse_bbox_result(mod.AskBoundingBox(f_tag))
+                    if f_res is not None:
+                        (fmin, fmax) = f_res
+                        for i in range(3):
+                            face_min[i] = min(face_min[i], fmin[i])
+                            face_max[i] = max(face_max[i], fmax[i])
+                        found_face_bounds = True
+                except Exception:
+                    pass
+    if found_face_bounds and face_min[0] <= face_max[0]:
+        return (
+            (face_min[0], face_min[1], face_min[2]),
+            (face_max[0], face_max[1], face_max[2]),
+        )
+
+    points = []
+    edges = list(getattr(body, "GetEdges", lambda: [])() or [])
+    for edge in edges:
+        try:
+            if mod and hasattr(mod, "AskEdgeVerts"):
+                pt1, pt2, vertex_count = mod.AskEdgeVerts(edge.Tag)
+                if vertex_count > 0:
+                    points.extend([_point_tuple(pt1), _point_tuple(pt2)])
         except Exception:
             continue
+        if hasattr(edge, "GetVertices"):
+            for v in edge.GetVertices() or []:
+                if hasattr(v, "Coordinates"):
+                    points.append(_point_tuple(v.Coordinates))
+
+    if not points and mod is not None:
+        for edge in edges:
+            try:
+                z, r = _edge_z_and_radius(edge)
+                if r > 0:
+                    points.extend([(-r, -r, z), (r, r, z)])
+            except Exception:
+                pass
+
     if not points:
         raise SelectionError(f"Could not determine body bounds for '{_body_name(body)}'")
 
@@ -681,9 +805,68 @@ def _body_volume_metric(body):
         dx = max(0.0, max_pt[0] - min_pt[0])
         dy = max(0.0, max_pt[1] - min_pt[1])
         dz = max(0.0, max_pt[2] - min_pt[2])
-        return dx * dy * dz
+        vol = dx * dy * dz
+        if vol > 1e-4:
+            return vol
+    except Exception:
+        pass
+    try:
+        faces = getattr(body, "GetFaces", lambda: [])() or []
+        edges = getattr(body, "GetEdges", lambda: [])() or []
+        return float(len(faces) * 100 + len(edges))
     except Exception:
         return 0.0
+
+
+def _refresh_body_by_name(body_id, all_bodies):
+    """Try to find a fresh body matching a previously-registered body's name.
+
+    When NX replaces body objects during modifying features (pattern, fillet,
+    chamfer), cached object references become stale.  This helper looks up
+    names previously associated with *body_id* in ``_state["bodies"]`` and
+    searches *all_bodies* (fresh from ``_iter_bodies``) for a match.  Returns
+    the refreshed body or None.
+    """
+    # Collect names that were mapped to body_id
+    known_names = set()
+    bodies_dict = _state.get("bodies", {})
+    stale_obj = bodies_dict.get(body_id)
+    if stale_obj is not None:
+        try:
+            known_names.add(_body_name(stale_obj).lower())
+        except Exception:
+            pass
+    # Also check body names stored as keys that point to the same stale object
+    for key, val in list(bodies_dict.items()):
+        if val is stale_obj and not key.startswith("body_"):
+            known_names.add(key.lower())
+
+    if not known_names:
+        return None
+
+    for body in all_bodies:
+        try:
+            name = _body_name(body).lower()
+            if name in known_names:
+                return body
+        except Exception:
+            continue
+    return None
+
+
+def _rebind_body_id(body_id, fresh_body):
+    """Re-bind a body_id to a fresh body object, updating all state mappings."""
+    tag = getattr(fresh_body, "Tag", None)
+    if tag is not None:
+        _state.setdefault("object_to_id", {})[tag] = body_id
+    _state.setdefault("id_map", {})[body_id] = fresh_body
+    _state.setdefault("bodies", {})[body_id] = fresh_body
+    _state["last_body"] = fresh_body
+    try:
+        name = _body_name(fresh_body).lower()
+        _state["bodies"][name] = fresh_body
+    except Exception:
+        pass
 
 
 def _resolve_body(reference="last"):
@@ -694,7 +877,15 @@ def _resolve_body(reference="last"):
     ref = str(reference or "last").strip().lower()
 
     if ref in _state.get("id_map", {}) and hasattr(_state["id_map"][ref], "GetEdges"):
-        return _state["id_map"][ref]
+        cached_body = _state["id_map"][ref]
+        # Validate the cached body is still alive — NX replaces body objects
+        # during modifying features (pattern, fillet, chamfer), making cached
+        # references stale.  If bounds check fails, fall through to re-resolve.
+        try:
+            _body_bounds(cached_body)
+            return cached_body
+        except Exception:
+            pass
 
     all_bodies = _iter_bodies(work_part)
     solid_bodies = [b for b in all_bodies if _is_real_solid_body(b)]
@@ -709,14 +900,32 @@ def _resolve_body(reference="last"):
                 return body
             except Exception:
                 pass
+        existing_bid = _state.get("last_body_id")
+        if existing_bid:
+            refreshed = _refresh_body_by_name(existing_bid, all_bodies)
+            if refreshed is not None and _is_real_solid_body(refreshed):
+                _rebind_body_id(existing_bid, refreshed)
+                return refreshed
         if solid_bodies:
             best_body = max(solid_bodies, key=_body_volume_metric)
-            _register_body(best_body)
+            if existing_bid:
+                _rebind_body_id(existing_bid, best_body)
+            else:
+                _register_body(best_body)
             return best_body
 
     if ref.startswith("body_"):
         if ref in _state.get("bodies", {}):
-            return _state["bodies"][ref]
+            cached = _state["bodies"][ref]
+            try:
+                _body_bounds(cached)
+                return cached
+            except Exception:
+                pass  # stale — try refresh by name
+        refreshed = _refresh_body_by_name(ref, all_bodies)
+        if refreshed is not None and _is_real_solid_body(refreshed):
+            _rebind_body_id(ref, refreshed)
+            return refreshed
         suffix = ref[5:].strip()
         if suffix.isdigit():
             idx = int(suffix) - 1
@@ -734,7 +943,16 @@ def _resolve_body(reference="last"):
 
     if ref in {"", "body", "solid", "part", "work"}:
         if len(solid_bodies) == 1:
-            _register_body(solid_bodies[0])
+            existing_bid = _state.get("last_body_id")
+            if existing_bid:
+                tag = getattr(solid_bodies[0], "Tag", None)
+                if tag is not None:
+                    _state.setdefault("object_to_id", {})[tag] = existing_bid
+                _state.setdefault("id_map", {})[existing_bid] = solid_bodies[0]
+                _state.setdefault("bodies", {})[existing_bid] = solid_bodies[0]
+                _state["last_body"] = solid_bodies[0]
+            else:
+                _register_body(solid_bodies[0])
             return solid_bodies[0]
         elif solid_bodies:
             body = _state.get("last_body")
@@ -745,7 +963,16 @@ def _resolve_body(reference="last"):
                 except Exception:
                     pass
             best_body = max(solid_bodies, key=_body_volume_metric)
-            _register_body(best_body)
+            existing_bid = _state.get("last_body_id")
+            if existing_bid:
+                tag = getattr(best_body, "Tag", None)
+                if tag is not None:
+                    _state.setdefault("object_to_id", {})[tag] = existing_bid
+                _state.setdefault("id_map", {})[existing_bid] = best_body
+                _state.setdefault("bodies", {})[existing_bid] = best_body
+                _state["last_body"] = best_body
+            else:
+                _register_body(best_body)
             return best_body
 
     raise SelectionError(f"Could not resolve body reference: {reference}")
@@ -762,10 +989,10 @@ def _format_bounds(body):
 
 
 def _edge_midpoint(edge):
-    uf = _get_uf()
-    if uf is None:
+    mod = _get_uf_modl()
+    if mod is None:
         return (0.0, 0.0, 0.0)
-    pt1, pt2, _vertex_count = uf.Modeling.AskEdgeVerts(edge.Tag)
+    pt1, pt2, _vertex_count = mod.AskEdgeVerts(edge.Tag)
     p1 = _point_tuple(pt1)
     p2 = _point_tuple(pt2)
     return tuple((a + b) / 2.0 for a, b in zip(p1, p2))
@@ -779,50 +1006,62 @@ def _edge_z_and_radius(edge):
 
     # 1. Check if edge vertices are distinct
     try:
-        pt1, pt2, count = uf.Modeling.AskEdgeVerts(edge.Tag)
-        if count > 0:
-            p1 = _point_tuple(pt1)
-            p2 = _point_tuple(pt2)
-            z = (p1[2] + p2[2]) / 2.0
-            r = math.sqrt(((p1[0] + p2[0]) / 2.0) ** 2 + ((p1[1] + p2[1]) / 2.0) ** 2)
-            if count > 1 or abs(r) > 0.001:
-                return z, r
+        mod = _get_uf_modl()
+        if mod and hasattr(mod, "AskEdgeVerts"):
+            pt1, pt2, count = mod.AskEdgeVerts(edge.Tag)
+            if count > 0:
+                p1 = _point_tuple(pt1)
+                p2 = _point_tuple(pt2)
+                z = (p1[2] + p2[2]) / 2.0
+                r = math.sqrt(((p1[0] + p2[0]) / 2.0) ** 2 + ((p1[1] + p2[1]) / 2.0) ** 2)
+                if count > 1 or abs(r) > 0.001:
+                    return z, r
     except Exception:
         pass
 
-    # 2. For closed circular edges (count == 0), check adjacent planar and cylindrical faces
+    # 2. Try Eval to check if edge is circular arc
+    try:
+        if hasattr(uf, "Eval"):
+            ev = uf.Eval.Initialize(edge.Tag)
+            try:
+                if uf.Eval.IsArc(ev):
+                    arc = uf.Eval.AskArc(ev)
+                    center_obj = getattr(arc, "Center", getattr(arc, "center", getattr(arc, "CenterPt", None)))
+                    rad_val = getattr(arc, "Radius", getattr(arc, "radius", 0.0))
+                    center = _point_tuple(center_obj)
+                    radius = float(rad_val)
+                    if radius > 0:
+                        return center[2], radius
+            finally:
+                try:
+                    uf.Eval.Free(ev)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # 3. For closed circular edges, check adjacent planar and cylindrical faces
     try:
         faces = getattr(edge, "GetFaces", lambda: [])() or []
         edge_z = None
         edge_r = None
+        mod = _get_uf_modl()
         for f in faces:
             try:
-                ftype, origin, dir, other = uf.Modeling.AskFaceData(f.Tag)
-                # Planar face: origin[2] is the Z-plane!
-                if ftype == 22:  # planar face
-                    edge_z = origin[2]
-                elif ftype == 16:  # cylinder face
-                    edge_r = other[0] if isinstance(other, (list, tuple)) else float(other)
+                if mod and hasattr(mod, "AskFaceData"):
+                    data = mod.AskFaceData(f.Tag)
+                    ftype = int(data[0]) if len(data) > 0 else 0
+                    origin = _point_tuple(data[1]) if len(data) > 1 else (0.0, 0.0, 0.0)
+                    if ftype == 22:  # planar face
+                        edge_z = origin[2]
+                    elif ftype == 16 and len(data) > 4:  # cylinder face
+                        edge_r = float(data[4])
             except Exception:
                 pass
-        if edge_z is not None or edge_r is not None:
-            return (edge_z if edge_z is not None else 0.0), (edge_r if edge_r is not None else 0.0)
-    except Exception:
-        pass
-
-    # 3. Fallback: Eval
-    try:
-        ev = uf.Eval.Initialize(edge.Tag)
-        try:
-            if uf.Eval.IsArc(ev):
-                arc = uf.Eval.AskArc(ev)
-                center = _point_tuple(arc.center)
-                return center[2], float(arc.radius)
-        finally:
-            try:
-                uf.Eval.Free(ev)
-            except Exception:
-                pass
+        if edge_z is not None and edge_r is not None and edge_r > 0:
+            return edge_z, edge_r
+        if edge_r is not None and edge_r > 0:
+            return (edge_z if edge_z is not None else 0.0), edge_r
     except Exception:
         pass
 
@@ -869,14 +1108,14 @@ def _resolve_feature_edges(body, feature_ref_key, sub_filter=None):
     initial_tags = set(feat_meta.get("edge_tags", [])) if isinstance(feat_meta, dict) else set()
     
     matched = []
-    uf = _get_uf()
+    mod = _get_uf_modl()
     for e in edges:
         if getattr(e, "Tag", None) in initial_tags:
             matched.append(e)
             continue
         try:
-            if uf is not None:
-                feats = uf.Modeling.AskEdgeFeats(e.Tag) or []
+            if mod is not None and hasattr(mod, "AskEdgeFeats"):
+                feats = mod.AskEdgeFeats(e.Tag) or []
                 if target_feat_tag and target_feat_tag in feats:
                     matched.append(e)
         except Exception:
@@ -951,12 +1190,15 @@ def _resolve_edges(body_reference="last", edge_reference="outer_edges"):
 
     def get_edge_endpoints(edge):
         try:
-            pt1, pt2, _ = UF_SESSION.Modeling.AskEdgeVerts(edge.Tag)
-            p1 = _point_tuple(pt1)
-            p2 = _point_tuple(pt2)
-            return p1, p2
+            mod = _get_uf_modl()
+            if mod and hasattr(mod, "AskEdgeVerts"):
+                pt1, pt2, _ = mod.AskEdgeVerts(edge.Tag)
+                p1 = _point_tuple(pt1)
+                p2 = _point_tuple(pt2)
+                return p1, p2
         except Exception:
-            return None, None
+            pass
+        return None, None
 
     if ref in {"x_edges", "x_aligned", "x_aligned_edges"}:
         selected = []
@@ -2709,6 +2951,15 @@ def add_chamfer(offset, body="last", edges="outer_edges"):
 
     work_part = _ensure_work_part()
     selected_edges = _resolve_edges(body, edges)
+
+    # Resolve and save target body ID BEFORE commit — NX replaces body objects
+    # during Chamfer, making the pre-chamfer reference stale.
+    pre_target_body = _resolve_body(body)
+    pre_bid = _state.get("object_to_id", {}).get(
+        getattr(pre_target_body, "Tag", None),
+        _state.get("last_body_id", "body_1"),
+    )
+
     prefix = _next_instance_prefix("CHAMFER")
     offset_name = _create_input_expression(work_part, f"{prefix}_OFFSET", offset)
 
@@ -2741,17 +2992,22 @@ def add_chamfer(offset, body="last", edges="outer_edges"):
     finally:
         builder.Destroy()
 
+    # Restore target body tracking — NX may have replaced the body object
+    _state["last_body_id"] = pre_bid
+    if pre_bid in _state.get("id_map", {}):
+        _state["last_body"] = _state["id_map"][pre_bid]
+    elif pre_bid in _state.get("bodies", {}):
+        _state["last_body"] = _state["bodies"][pre_bid]
+
     fit_view()
-    target_body = _resolve_body(body)
-    bid = _state.get("object_to_id", {}).get(getattr(target_body, "Tag", None), _state.get("last_body_id", "body_1"))
     fid = _state.get("object_to_id", {}).get(getattr(feature, "Tag", None), _state.get("last_feature_id", "feature_1"))
     return {
         "ok": True,
         "message": f"Chamfer {offset}mm on {len(selected_edges)} edges",
         "feature_id": fid,
-        "body_id": bid,
+        "body_id": pre_bid,
         "consumed": [],
-        "modified": [bid] if bid else [],
+        "modified": [pre_bid] if pre_bid else [],
         "produced": [],
     }
 
@@ -2763,6 +3019,15 @@ def add_fillet(radius, body="last", edges="outer_edges"):
 
     work_part = _ensure_work_part()
     selected_edges = _resolve_edges(body, edges)
+
+    # Resolve and save target body ID BEFORE commit — NX replaces body objects
+    # during EdgeBlend, making the pre-fillet reference stale.
+    pre_target_body = _resolve_body(body)
+    pre_bid = _state.get("object_to_id", {}).get(
+        getattr(pre_target_body, "Tag", None),
+        _state.get("last_body_id", "body_1"),
+    )
+
     prefix = _next_instance_prefix("FILLET")
     r_name = _create_input_expression(work_part, f"{prefix}_R", radius)
 
@@ -2794,17 +3059,22 @@ def add_fillet(radius, body="last", edges="outer_edges"):
     finally:
         builder.Destroy()
 
+    # Restore target body tracking — NX may have replaced the body object
+    _state["last_body_id"] = pre_bid
+    if pre_bid in _state.get("id_map", {}):
+        _state["last_body"] = _state["id_map"][pre_bid]
+    elif pre_bid in _state.get("bodies", {}):
+        _state["last_body"] = _state["bodies"][pre_bid]
+
     fit_view()
-    target_body = _resolve_body(body)
-    bid = _state.get("object_to_id", {}).get(getattr(target_body, "Tag", None), _state.get("last_body_id", "body_1"))
     fid = _state.get("object_to_id", {}).get(getattr(feature, "Tag", None), _state.get("last_feature_id", "feature_1"))
     return {
         "ok": True,
         "message": f"Fillet R{radius} on {len(selected_edges)} edges",
         "feature_id": fid,
-        "body_id": bid,
+        "body_id": pre_bid,
         "consumed": [],
-        "modified": [bid] if bid else [],
+        "modified": [pre_bid] if pre_bid else [],
         "produced": [],
     }
 

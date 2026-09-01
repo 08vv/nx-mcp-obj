@@ -82,14 +82,25 @@ def test_live_fixes():
     assert res_pat.get("body_id") is not None
     target_disk_body = res_pat.get("body_id")
 
+    # Diagnostic: dump all bodies after pattern to understand what NX created
+    res_inspect = runner.call_nx("inspect_part", {})
+    print(f"\n   === DIAGNOSTIC: All bodies after pattern_circular ===")
+    for b in res_inspect.get("bodies", []):
+        print(f"   BODY: name={b.get('name','?')}, faces={b.get('face_count',0)}, edges={b.get('edge_count',0)}")
+    # Also try get_bounding_box("all") to see total part bounds
+    res_bbox_all = runner.call_nx("get_bounding_box", {"body_reference": "all"})
+    print(f"   BBox(all): {res_bbox_all}")
+    print(f"   === END DIAGNOSTIC ===\n")
+
     # Add fillet on the patterned disk body
     res_fillet = runner.call_nx("add_fillet", {"radius": 1.0, "body": "last", "edges": "outer_edges"})
     print(f"   add_fillet:         {res_fillet}")
     assert res_fillet.get("ok") is True, f"add_fillet failed: {res_fillet}"
-    assert res_fillet.get("body_id") is not None
+    fillet_bid = res_fillet.get("body_id")
+    assert fillet_bid == "body_1", f"Expected fillet body_id='body_1', got '{fillet_bid}'"
 
-    # Check bounding box
-    res_bbox = runner.call_nx("get_bounding_box", {"body_reference": "last"})
+    # Check bounding box explicitly via body_1 to verify the main cylinder
+    res_bbox = runner.call_nx("get_bounding_box", {"body_reference": "body_1"})
     print(f"   get_bounding_box:   {res_bbox}")
     assert res_bbox.get("ok") is True, f"get_bounding_box failed: {res_bbox}"
 
@@ -104,6 +115,15 @@ def test_live_fixes():
         assert dx >= 100.0, f"Expected DX >= 100mm, got {dx}"
         assert dy >= 100.0, f"Expected DY >= 100mm, got {dy}"
         assert abs(dz - 16.0) < 0.1, f"Expected DZ ~ 16mm, got {dz}"
+
+    # Also verify body_reference="last" resolves to body_1 after the fix
+    res_bbox_last = runner.call_nx("get_bounding_box", {"body_reference": "last"})
+    bbox_last = res_bbox_last.get("bounding_box", {})
+    if bbox_last:
+        dx_last = bbox_last["max"][0] - bbox_last["min"][0]
+        print(f"   Bounding Box (last): DX={dx_last:.2f}mm — should match body_1")
+        assert dx_last >= 100.0, f"body_reference='last' DX={dx_last}, expected >=100mm"
+
     print("   [PASS] Bug 2 Verified: Pattern -> Fillet -> Bounding Box targeted real disk solid.")
 
     # 5. Inspect final topology

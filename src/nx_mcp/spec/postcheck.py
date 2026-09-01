@@ -173,9 +173,10 @@ def verify_postexecution(
                 # If simple single-primitive spec, verify volume
                 if len(cad_spec.nodes) == 2 and cad_spec.nodes[1].op == "create_cuboid":
                     p = cad_spec.nodes[1].params
+                    target_body_id = symbol_table.get(cad_spec.nodes[1].id, {}).get("body_id", alive_bodies[-1] if alive_bodies else "body_1")
                     try:
                         exp_vol = float(p["length"]) * float(p["width"]) * float(p["height"])
-                        vol_res = runner.call_nx("measure_volume", {"body": alive_bodies[0]})
+                        vol_res = runner.call_nx("measure_body_volume", {"body_reference": target_body_id})
                         if vol_res.get("ok") and "volume" in vol_res:
                             meas_vol = float(vol_res["volume"])
                             report.metrics["measured_volume"] = meas_vol

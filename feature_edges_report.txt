@@ -1,0 +1,11 @@
+=== TESTING FEATURE-SCOPED EDGE RESOLUTION IN NX ===
+1. Base cylinder: {'ok': True, 'message': 'Cylinder R60.0 height 8.0 at (0.0,0.0,0.0)'}
+   Base feature name: 'Cylinder(0)', edge_tags: [60258, 60259]
+2. Hub cylinder: {'ok': True, 'message': 'Cylinder R20.0 height 12.0 at (0.0,0.0,8.0)'}
+   Hub feature name: 'Cylinder(1)', edge_tags: [60395, 60396]
+3. Boolean unite: {'ok': True, 'message': 'Boolean unite: CYLINDER(1) with CYLINDER(0)'}
+   All body edges after unite: 4
+     Body Edge Tag 60736: Z1=0.00, Z2=0.00
+     Body Edge Tag 60395: Z1=0.00, Z2=0.00
+     Body Edge Tag 60259: Z1=0.00, Z2=0.00
+     Body Edge Tag 60258: Z1=0.00, Z2=0.00

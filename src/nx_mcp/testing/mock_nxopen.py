@@ -126,8 +126,16 @@ class _PartsCollection:
     def __init__(self):
         self._work = _WorkPart()
 
+    def __iter__(self):
+        return iter([self._work])
+
     def NewDisplay(self, filename, units):
         print(f"[MOCK] NewDisplay {filename}")
+        self._work.FullPath = filename
+        return MagicMock()
+
+    def OpenDisplay(self, filename):
+        print(f"[MOCK] OpenDisplay {filename}")
         self._work.FullPath = filename
         return MagicMock()
 
@@ -135,6 +143,14 @@ class _PartsCollection:
         print(f"[MOCK] Open {filename}")
         self._work.FullPath = filename
         return MagicMock()
+
+    def SetDisplay(self, part, option1, option2):
+        print(f"[MOCK] SetDisplay {part}")
+        self._work = part
+
+    def SetWork(self, part):
+        print(f"[MOCK] SetWork {part}")
+        self._work = part
 
     @property
     def Work(self):

@@ -114,6 +114,7 @@ Step N: <operation_type>
 | `mirror_feature` | feature, plane (XY/XZ/YZ) |
 | `pattern_feature` | feature, direction, count, pitch |
 | `pattern_circular` | feature, axis, count, angle_total |
+| `create_gear` | outer_diameter, tooth_count, face_width, hub_diameter, hub_length, bore_diameter, lightening_hole_diameter, lightening_hole_pcd, lightening_hole_count |
 
 > **Critical**: Always specify direction as `+X`, `-Z`, etc. Never use `"auto"`.
 

@@ -1,0 +1,554 @@
+# Repository Minimalism Audit
+
+## Repository Statistics
+- Total files: 437
+- Total Python files: 260
+- Total Markdown files: 16
+
+## KEEP
+Files that are essential.
+- `.env.example`: Configuration file
+- `docs/architecture.md`: Documentation
+- `docs/bridge.md`: Documentation
+- `docs/limitations.md`: Documentation
+- `docs/nx_model_prompt_format.md`: Documentation
+- `docs/parametric.md`: Documentation
+- `docs/runner.md`: Documentation
+- `docs/state.md`: Documentation
+- `docs/tool_registry.md`: Documentation
+- `docs/workflow.md`: Documentation
+- `examples/build_bottle_parts.py`: Examples
+- `examples/build_compact.py`: Examples
+- `examples/build_compact_elle18.py`: Examples
+- `examples/build_cream_jar.py`: Examples
+- `examples/build_detox_body_wash_bottle.py`: Examples
+- `examples/build_everomino_pump_bottle.py`: Examples
+- `examples/build_floral_soap.py`: Examples
+- `examples/build_food_container.py`: Examples
+- `examples/build_lip_colour.py`: Examples
+- `examples/build_persil_bottle.py`: Examples
+- `examples/build_persil_bottle_clean.py`: Examples
+- `examples/build_pouch.py`: Examples
+- `examples/build_profile.py`: Examples
+- `examples/build_sachet.py`: Examples
+- `examples/build_sauce_bottle.py`: Examples
+- `examples/build_toothbrush.py`: Examples
+- `examples/build_toothpaste_tube.py`: Examples
+- `examples/create_bottle_parts.py`: Examples
+- `examples/create_compact.py`: Examples
+- `examples/create_compact_elle18.py`: Examples
+- `examples/create_cream_jar.py`: Examples
+- `examples/create_detox_body_wash_bottle.py`: Examples
+- `examples/create_everomino_pump_bottle.py`: Examples
+- `examples/create_floral_soap.py`: Examples
+- `examples/create_food_container.py`: Examples
+- `examples/create_lip_colour.py`: Examples
+- `examples/create_mounting_plate.py`: Examples
+- `examples/create_persil_bottle.py`: Examples
+- `examples/create_persil_bottle_clean.py`: Examples
+- `examples/create_pouch.py`: Examples
+- `examples/create_profile.py`: Examples
+- `examples/create_sachet.py`: Examples
+- `examples/create_sauce_bottle.py`: Examples
+- `examples/create_toothbrush.py`: Examples
+- `examples/create_toothpaste_tube.py`: Examples
+- `nx_result_watcher.ps1`: Utility for watching NX
+- `pyproject.toml`: Configuration file
+- `src/nx_mcp/__init__.py`: Source code
+- `src/nx_mcp/bridge/__init__.py`: Source code
+- `src/nx_mcp/bridge/nx_bridge.py`: Source code
+- `src/nx_mcp/bridge/runner.py`: Source code
+- `src/nx_mcp/http_server.py`: Source code
+- `src/nx_mcp/nx_bridge.py`: Source code
+- `src/nx_mcp/nx_session.py`: Source code
+- `src/nx_mcp/nxopen_loader.py`: Source code
+- `src/nx_mcp/response.py`: Source code
+- `src/nx_mcp/server.py`: Source code
+- `src/nx_mcp/testing/__init__.py`: Source code
+- `src/nx_mcp/testing/mock_nxopen.py`: Source code
+- `src/nx_mcp/tools/__init__.py`: Source code
+- `src/nx_mcp/tools/assembly.py`: Source code
+- `src/nx_mcp/tools/combine_operations.py`: Source code
+- `src/nx_mcp/tools/edit_operations.py`: Source code
+- `src/nx_mcp/tools/file_ops.py`: Source code
+- `src/nx_mcp/tools/measure.py`: Source code
+- `src/nx_mcp/tools/modeling.py`: Source code
+- `src/nx_mcp/tools/registry.py`: Source code
+- `src/nx_mcp/tools/sketch.py`: Source code
+- `src/nx_mcp/tools/surface_modeling.py`: Source code
+- `src/nx_mcp/tools/utility.py`: Source code
+- `src/nx_mcp/utils/__init__.py`: Source code
+- `src/nx_mcp/utils/geometry.py`: Source code
+- `src/nx_mcp/validate_nxopen.py`: Source code
+- `start_nx_result_watcher.cmd`: Utility for watching NX
+- `tests/conftest.py`: Test suite
+- `tests/test_nx_bridge.py`: Test suite
+- `tests/test_surface_tools.py`: Test suite
+- `tests/test_tools.py`: Test suite
+
+## DELETE
+Files safe to remove.
+- `arm.prt`: Generated CAD/media/log artifact
+- `base_plate_100x60x10.prt`: Generated CAD/media/log artifact
+- `benchmark_06_clevis_bracket.prt`: Generated CAD/media/log artifact
+- `benchmark_06_clevis_bracket.stl`: Generated CAD/media/log artifact
+- `benchmark_06_clevis_bracket.stp`: Generated CAD/media/log artifact
+- `benchmark_06_clevis_bracket_lightening_cutouts.prt`: Generated CAD/media/log artifact
+- `benchmark_06_clevis_bracket_lightening_cutouts.stl`: Generated CAD/media/log artifact
+- `benchmark_06_clevis_bracket_lightening_cutouts.stp`: Generated CAD/media/log artifact
+- `Bottle_Body.prt`: Generated CAD/media/log artifact
+- `bottle_body_journal.log`: Generated CAD/media/log artifact
+- `bottle_cap_journal.log`: Generated CAD/media/log artifact
+- `bottle_parts_journal.log`: Generated CAD/media/log artifact
+- `cantilever_clevis_plate.prt`: Generated CAD/media/log artifact
+- `cantilever_clevis_plate.stl`: Generated CAD/media/log artifact
+- `cantilever_clevis_plate.stp`: Generated CAD/media/log artifact
+- `circular_flange.prt`: Generated CAD/media/log artifact
+- `circular_flange_6_holes.obj`: Generated CAD/media/log artifact
+- `circular_flange_8_holes.obj`: Generated CAD/media/log artifact
+- `circular_flange_8_holes.prt`: Generated CAD/media/log artifact
+- `clevis_mount_bracket.prt`: Generated CAD/media/log artifact
+- `clevis_mount_bracket.stl`: Generated CAD/media/log artifact
+- `clevis_mount_bracket.stp`: Generated CAD/media/log artifact
+- `clevis_mount_plate.prt`: Generated CAD/media/log artifact
+- `clevis_mount_plate.stl`: Generated CAD/media/log artifact
+- `clevis_mount_plate.stp`: Generated CAD/media/log artifact
+- `clevis_mount_v2.prt`: Generated CAD/media/log artifact
+- `compact_journal.log`: Generated CAD/media/log artifact
+- `Compact_Model.prt`: Generated CAD/media/log artifact
+- `Compact_Model_Elle18.prt`: Generated CAD/media/log artifact
+- `cream_jar_journal.log`: Generated CAD/media/log artifact
+- `Cream_Jar_Model.prt`: Generated CAD/media/log artifact
+- `cube.prt`: Generated CAD/media/log artifact
+- `cube.stl`: Generated CAD/media/log artifact
+- `cylinder_r10_h50.prt`: Generated CAD/media/log artifact
+- `cylinder_r10_h50_chamfer5.prt`: Generated CAD/media/log artifact
+- `cylinder_r10_h50_chamfer5_bottom_blend2.prt`: Generated CAD/media/log artifact
+- `cylinder_r20_h50.prt`: Generated CAD/media/log artifact
+- `debug_containment_run_out.txt`: Generated debug file
+- `debug_hole.txt`: Generated debug file
+- `debug_out.txt`: Generated temporary file
+- `debug_unite_run.txt`: Generated debug file
+- `detox_body_wash_bottle.prt`: Generated CAD/media/log artifact
+- `detox_body_wash_bottle_journal.log`: Generated CAD/media/log artifact
+- `dog_leg_link.log`: Generated CAD/media/log artifact
+- `dog_leg_link.prt`: Generated CAD/media/log artifact
+- `dog_leg_link.stl`: Generated CAD/media/log artifact
+- `dog_leg_link.stp`: Generated CAD/media/log artifact
+- `double_clevis_mount.log`: Generated CAD/media/log artifact
+- `double_clevis_mount.prt`: Generated CAD/media/log artifact
+- `double_clevis_mount.stl`: Generated CAD/media/log artifact
+- `double_clevis_mount_stp.prt`: Generated CAD/media/log artifact
+- `everomino_pump_bottle.prt`: Generated CAD/media/log artifact
+- `everomino_pump_bottle_journal.log`: Generated CAD/media/log artifact
+- `Floral_Soap.prt`: Generated CAD/media/log artifact
+- `floral_soap_journal.log`: Generated CAD/media/log artifact
+- `Food_Container.prt`: Generated CAD/media/log artifact
+- `food_container_journal.log`: Generated CAD/media/log artifact
+- `impeller_disk.prt`: Generated CAD/media/log artifact
+- `impeller_disk.stl`: Generated CAD/media/log artifact
+- `impeller_disk.stp`: Generated CAD/media/log artifact
+- `impeller_disk3.prt`: Generated CAD/media/log artifact
+- `impeller_disk3.stl`: Generated CAD/media/log artifact
+- `Industrial_Profile_Model.prt`: Generated CAD/media/log artifact
+- `l_linkage_arm.prt`: Generated CAD/media/log artifact
+- `latest_nx_result.txt`: Generated temporary file
+- `linkage_arm.prt`: Generated CAD/media/log artifact
+- `linkage_bracket.prt`: Generated CAD/media/log artifact
+- `lip_colour_journal.log`: Generated CAD/media/log artifact
+- `Liquid_Lip_Colour.prt`: Generated CAD/media/log artifact
+- `live_validation/current3/validate_add_chamfer.prt`: Generated CAD/media/log artifact
+- `live_validation/current3/validate_add_fillet.prt`: Generated CAD/media/log artifact
+- `live_validation/current3/validate_add_hole.prt`: Generated CAD/media/log artifact
+- `live_validation/current3/validate_boolean_subtract.prt`: Generated CAD/media/log artifact
+- `live_validation/current3/validate_boolean_unite.prt`: Generated CAD/media/log artifact
+- `live_validation/current3/validate_create_cylinder.prt`: Generated CAD/media/log artifact
+- `live_validation/current3/validate_pattern_feature.prt`: Generated CAD/media/log artifact
+- `live_validation/validate_add_chamfer.prt`: Generated CAD/media/log artifact
+- `live_validation/validate_add_fillet.prt`: Generated CAD/media/log artifact
+- `live_validation/validate_create_cylinder.prt`: Generated CAD/media/log artifact
+- `mechanical_bracket.prt`: Generated CAD/media/log artifact
+- `mounting_fixture_plate.prt`: Generated CAD/media/log artifact
+- `mounting_fixture_plate.stl`: Generated CAD/media/log artifact
+- `mounting_fixture_plate.stp`: Generated CAD/media/log artifact
+- `mounting_plate_v2.prt`: Generated CAD/media/log artifact
+- `mounting_plate_v3.prt`: Generated CAD/media/log artifact
+- `mounting_plate_v4.prt`: Generated CAD/media/log artifact
+- `mounting_plate_v5.prt`: Generated CAD/media/log artifact
+- `mounting_plate_v7.prt`: Generated CAD/media/log artifact
+- `offset_link_bracket.prt`: Generated CAD/media/log artifact
+- `offset_linkage_arm.prt`: Generated CAD/media/log artifact
+- `parametric_shaft_with_keyway.prt`: Generated CAD/media/log artifact
+- `parametric_swirl_pump_bottle.log`: Generated CAD/media/log artifact
+- `parametric_swirl_pump_bottle.prt`: Generated CAD/media/log artifact
+- `persil_bottle_clean_journal.log`: Generated CAD/media/log artifact
+- `persil_bottle_journal.log`: Generated CAD/media/log artifact
+- `Persil_Detergent_Bottle.prt`: Generated CAD/media/log artifact
+- `Persil_Detergent_Bottle_Clean.prt`: Generated CAD/media/log artifact
+- `plate_100x60x10_4x_d8_holes.obj`: Generated CAD/media/log artifact
+- `plate_100x60x10_4x_d8_holes.prt`: Generated CAD/media/log artifact
+- `pouch_journal.log`: Generated CAD/media/log artifact
+- `Pouch_Model.prt`: Generated CAD/media/log artifact
+- `profile_journal.log`: Generated CAD/media/log artifact
+- `radial_engine_cylinder.prt`: Generated CAD/media/log artifact
+- `radial_engine_cylinder.stl`: Generated CAD/media/log artifact
+- `radial_engine_cylinder.stp`: Generated CAD/media/log artifact
+- `radial_engine_cylinder3.prt`: Generated CAD/media/log artifact
+- `radial_engine_cylinder3.stl`: Generated CAD/media/log artifact
+- `radial_engine_cylinder3.stp`: Generated CAD/media/log artifact
+- `reference_image_swirl_pump_bottle.log`: Generated CAD/media/log artifact
+- `reference_image_swirl_pump_bottle.prt`: Generated CAD/media/log artifact
+- `reference_matched_swirl_pump_bottle.prt`: Generated CAD/media/log artifact
+- `sachet_journal.log`: Generated CAD/media/log artifact
+- `Sachet_Model.prt`: Generated CAD/media/log artifact
+- `sauce_bottle_journal.log`: Generated CAD/media/log artifact
+- `scratch/automotive_pulley_hub.py`: Scratch/temporary script
+- `scratch/automotive_pulley_hub.py.avi`: Generated CAD/media/log artifact
+- `scratch/check_assoc_stadium.py`: Scratch/temporary script
+- `scratch/collision_test_raw_results.json`: Scratch/temporary script
+- `scratch/debug_containment_run.py`: Scratch/temporary script
+- `scratch/debug_part.py`: Scratch/temporary script
+- `scratch/debug_pouch_points.py`: Scratch/temporary script
+- `scratch/debug_three_arm.py`: Scratch/temporary script
+- `scratch/diag_crimp.prt`: Generated CAD/media/log artifact
+- `scratch/diag_seal.prt`: Generated CAD/media/log artifact
+- `scratch/find_arc_usage.py`: Scratch/temporary script
+- `scratch/find_pattern_builder.py`: Scratch/temporary script
+- `scratch/flange_120_50_15_6x10_bcd95.py`: Scratch/temporary script
+- `scratch/inspect_angular_extend.py`: Scratch/temporary script
+- `scratch/inspect_angular_limits.py`: Scratch/temporary script
+- `scratch/inspect_body_props.py`: Scratch/temporary script
+- `scratch/inspect_canned.py`: Scratch/temporary script
+- `scratch/inspect_curves.py`: Scratch/temporary script
+- `scratch/inspect_datum_builder.py`: Scratch/temporary script
+- `scratch/inspect_dim_geom.py`: Scratch/temporary script
+- `scratch/inspect_edges.py`: Scratch/temporary script
+- `scratch/inspect_extrude.py`: Scratch/temporary script
+- `scratch/inspect_faces.prt`: Generated CAD/media/log artifact
+- `scratch/inspect_geometric_constraint_data.py`: Scratch/temporary script
+- `scratch/inspect_mass_props.py`: Scratch/temporary script
+- `scratch/inspect_measure_manager.py`: Scratch/temporary script
+- `scratch/inspect_modeling_props.py`: Scratch/temporary script
+- `scratch/inspect_modl_motion.py`: Scratch/temporary script
+- `scratch/inspect_move_object.py`: Scratch/temporary script
+- `scratch/inspect_nx_bridge_view.py`: Scratch/temporary script
+- `scratch/inspect_nx_bridge_volume.py`: Scratch/temporary script
+- `scratch/inspect_orient.py`: Scratch/temporary script
+- `scratch/inspect_pattern_definition.py`: Scratch/temporary script
+- `scratch/inspect_pattern_enum.py`: Scratch/temporary script
+- `scratch/inspect_rapid_dimension.py`: Scratch/temporary script
+- `scratch/inspect_rectangular_definition.py`: Scratch/temporary script
+- `scratch/inspect_rectangular_spacing.py`: Scratch/temporary script
+- `scratch/inspect_reference_link.py`: Scratch/temporary script
+- `scratch/inspect_revolve.py`: Scratch/temporary script
+- `scratch/inspect_revolve_axis.py`: Scratch/temporary script
+- `scratch/inspect_sketch.py`: Scratch/temporary script
+- `scratch/inspect_sketch_instance.py`: Scratch/temporary script
+- `scratch/inspect_sketches.py`: Scratch/temporary script
+- `scratch/inspect_spline.py`: Scratch/temporary script
+- `scratch/inspect_spline_builders.py`: Scratch/temporary script
+- `scratch/inspect_studio_spline.py`: Scratch/temporary script
+- `scratch/inspect_uf_modl.py`: Scratch/temporary script
+- `scratch/inspect_view_style.py`: Scratch/temporary script
+- `scratch/open_flange.py`: Scratch/temporary script
+- `scratch/open_hub.py`: Scratch/temporary script
+- `scratch/open_l_bracket.py`: Scratch/temporary script
+- `scratch/open_pulley_hub.py`: Scratch/temporary script
+- `scratch/print_close_modified.py`: Scratch/temporary script
+- `scratch/print_draft_option_values.py`: Scratch/temporary script
+- `scratch/probe_boolean_tool.py`: Scratch/temporary script
+- `scratch/probe_create_plane_overloads.py`: Scratch/temporary script
+- `scratch/probe_datum_plane_builder.py`: Scratch/temporary script
+- `scratch/probe_datum_plane_creation.py`: Scratch/temporary script
+- `scratch/probe_datum_plane_feature.py`: Scratch/temporary script
+- `scratch/probe_datum_plane_properties.py`: Scratch/temporary script
+- `scratch/probe_draft.py`: Scratch/temporary script
+- `scratch/probe_extrude_attrs.py`: Scratch/temporary script
+- `scratch/probe_extrude_draft.py`: Scratch/temporary script
+- `scratch/probe_face_plane_tool.py`: Scratch/temporary script
+- `scratch/probe_feature_draft.py`: Scratch/temporary script
+- `scratch/probe_features.py`: Scratch/temporary script
+- `scratch/probe_get_datum.py`: Scratch/temporary script
+- `scratch/probe_multidraft.py`: Scratch/temporary script
+- `scratch/probe_part_contents.py`: Scratch/temporary script
+- `scratch/probe_plane_feat_geom.py`: Scratch/temporary script
+- `scratch/probe_plane_set_geometry.py`: Scratch/temporary script
+- `scratch/probe_plane_set_geometry_arg.py`: Scratch/temporary script
+- `scratch/probe_planes_collection.py`: Scratch/temporary script
+- `scratch/probe_point_collection.py`: Scratch/temporary script
+- `scratch/probe_sphere_builder.py`: Scratch/temporary script
+- `scratch/probe_sphere_correct.py`: Scratch/temporary script
+- `scratch/probe_sphere_types.py`: Scratch/temporary script
+- `scratch/probe_split_body.py`: Scratch/temporary script
+- `scratch/probe_split_body_builder.py`: Scratch/temporary script
+- `scratch/probe_split_failure.py`: Scratch/temporary script
+- `scratch/probe_trim.py`: Scratch/temporary script
+- `scratch/probe_types_draft.py`: Scratch/temporary script
+- `scratch/quick_zbounds.py`: Scratch/temporary script
+- `scratch/run_arm_assembly.py`: Scratch/temporary script
+- `scratch/run_debug_three_arm.py`: Scratch/temporary script
+- `scratch/run_expression_collision_tests.py`: Scratch/temporary script
+- `scratch/run_inspect_dim_geom.py`: Scratch/temporary script
+- `scratch/run_inspect_modl_motion.py`: Scratch/temporary script
+- `scratch/run_inspect_move_object.py`: Scratch/temporary script
+- `scratch/run_inspect_sketch.py`: Scratch/temporary script
+- `scratch/run_probe_draft.py`: Scratch/temporary script
+- `scratch/run_test_constraints.py`: Scratch/temporary script
+- `scratch/run_test_cylinder.py`: Scratch/temporary script
+- `scratch/run_test_sketch_dim.py`: Scratch/temporary script
+- `scratch/run_verify.py`: Scratch/temporary script
+- `scratch/search_measures.py`: Scratch/temporary script
+- `scratch/search_validation.py`: Scratch/temporary script
+- `scratch/test_all_builders_null.py`: Scratch/temporary script
+- `scratch/test_arc.py`: Scratch/temporary script
+- `scratch/test_assoc_arc.py`: Scratch/temporary script
+- `scratch/test_auto_dim.py`: Scratch/temporary script
+- `scratch/test_bool.py`: Scratch/temporary script
+- `scratch/test_boolean_api.py`: Scratch/temporary script
+- `scratch/test_boolean_build.py`: Scratch/temporary script
+- `scratch/test_boolean_properties.py`: Scratch/temporary script
+- `scratch/test_boolean_tool_set.py`: Scratch/temporary script
+- `scratch/test_builder_plane.py`: Scratch/temporary script
+- `scratch/test_cast_method.py`: Scratch/temporary script
+- `scratch/test_ccw_draft.py`: Scratch/temporary script
+- `scratch/test_circular_edge.py`: Scratch/temporary script
+- `scratch/test_close_clean.py`: Scratch/temporary script
+- `scratch/test_compact_flow.py`: Scratch/temporary script
+- `scratch/test_complete_base.py`: Scratch/temporary script
+- `scratch/test_constraints.prt`: Generated CAD/media/log artifact
+- `scratch/test_constraints.py`: Scratch/temporary script
+- `scratch/test_containment.py`: Scratch/temporary script
+- `scratch/test_create_plane_overload_success.py`: Scratch/temporary script
+- `scratch/test_cushion_sketch.py`: Scratch/temporary script
+- `scratch/test_cylinder.py`: Scratch/temporary script
+- `scratch/test_datum_plane_generation.py`: Scratch/temporary script
+- `scratch/test_datum_split.py`: Scratch/temporary script
+- `scratch/test_draft_clean.py`: Scratch/temporary script
+- `scratch/test_draft_cushion.py`: Scratch/temporary script
+- `scratch/test_draft_direction.py`: Scratch/temporary script
+- `scratch/test_draft_expr.py`: Scratch/temporary script
+- `scratch/test_edge.py`: Scratch/temporary script
+- `scratch/test_edge_geom.py`: Scratch/temporary script
+- `scratch/test_endpoints.py`: Scratch/temporary script
+- `scratch/test_enum_init.py`: Scratch/temporary script
+- `scratch/test_extrude_dir.prt`: Generated CAD/media/log artifact
+- `scratch/test_extrude_draft.py`: Scratch/temporary script
+- `scratch/test_extrude_slot.py`: Scratch/temporary script
+- `scratch/test_face_draft.py`: Scratch/temporary script
+- `scratch/test_isurface_cast.py`: Scratch/temporary script
+- `scratch/test_modeling_volume.py`: Scratch/temporary script
+- `scratch/test_multidraft_correct.py`: Scratch/temporary script
+- `scratch/test_multidraft_exec.py`: Scratch/temporary script
+- `scratch/test_offset.py`: Scratch/temporary script
+- `scratch/test_offset_exec.py`: Scratch/temporary script
+- `scratch/test_offset_face.py`: Scratch/temporary script
+- `scratch/test_pattern_linear.py`: Scratch/temporary script
+- `scratch/test_plane_direct.py`: Scratch/temporary script
+- `scratch/test_plane_from_datum.py`: Scratch/temporary script
+- `scratch/test_plane_origin_normal.py`: Scratch/temporary script
+- `scratch/test_plane_reapply.py`: Scratch/temporary script
+- `scratch/test_point_creation.py`: Scratch/temporary script
+- `scratch/test_point_feature_builder.py`: Scratch/temporary script
+- `scratch/test_point_overloads.py`: Scratch/temporary script
+- `scratch/test_revolve.py`: Scratch/temporary script
+- `scratch/test_set_tool_objects.py`: Scratch/temporary script
+- `scratch/test_shell_split.py`: Scratch/temporary script
+- `scratch/test_sketch.py`: Scratch/temporary script
+- `scratch/test_sketch_dim.py`: Scratch/temporary script
+- `scratch/test_sketch_plane.py`: Scratch/temporary script
+- `scratch/test_sphere_boolean.py`: Scratch/temporary script
+- `scratch/test_sphere_creation.py`: Scratch/temporary script
+- `scratch/test_sphere_intersect.py`: Scratch/temporary script
+- `scratch/test_split_approaches.py`: Scratch/temporary script
+- `scratch/test_split_body_complete.py`: Scratch/temporary script
+- `scratch/test_split_expr.py`: Scratch/temporary script
+- `scratch/test_split_options.py`: Scratch/temporary script
+- `scratch/test_split_shell.py`: Scratch/temporary script
+- `scratch/test_studio_spline.py`: Scratch/temporary script
+- `scratch/test_tool_plane.py`: Scratch/temporary script
+- `scratch/test_toothpaste_build_debug.prt`: Generated CAD/media/log artifact
+- `scratch/test_toothpaste_build_debug2.prt`: Generated CAD/media/log artifact
+- `scratch/test_uf.py`: Scratch/temporary script
+- `scratch/test_uf_revolve.py`: Scratch/temporary script
+- `scratch/test_uniform_sampling.py`: Scratch/temporary script
+- `scratch/test_unite_step8.py`: Scratch/temporary script
+- `scratch/test_verify_variables.py`: Scratch/temporary script
+- `scratch/validate_cream_jar.py`: Scratch/temporary script
+- `scratch/variations.prt`: Generated CAD/media/log artifact
+- `scratch/verify_compact.py`: Scratch/temporary script
+- `scratch/verify_compact_elle18.py`: Scratch/temporary script
+- `scratch/verify_pouch.py`: Scratch/temporary script
+- `scratch/verify_pouch_parametric.py`: Scratch/temporary script
+- `spur_gear_28T_m3.prt`: Generated CAD/media/log artifact
+- `Sunlight_Detergent_Bottle.prt`: Generated CAD/media/log artifact
+- `Sweet_Spicy_Sauce_Bottle.prt`: Generated CAD/media/log artifact
+- `swirl_pump_bottle_journal.log`: Generated CAD/media/log artifact
+- `symmetric_u_bracket_stepped_bosses.prt`: Generated CAD/media/log artifact
+- `symmetric_u_bracket_stepped_bosses.stl`: Generated CAD/media/log artifact
+- `symmetric_u_bracket_stepped_bosses.stp`: Generated CAD/media/log artifact
+- `threaded_clevis_block.prt`: Generated CAD/media/log artifact
+- `threaded_trunnion.prt`: Generated CAD/media/log artifact
+- `three_arm_bracket.prt`: Generated CAD/media/log artifact
+- `toothbrush_journal.log`: Generated CAD/media/log artifact
+- `Toothbrush_Model.prt`: Generated CAD/media/log artifact
+- `Toothpaste_Tube.prt`: Generated CAD/media/log artifact
+- `toothpaste_tube_journal.log`: Generated CAD/media/log artifact
+- `two_cuboids.prt`: Generated CAD/media/log artifact
+- `ugraf_stderr.txt`: Generated temporary file
+- `ugstep214.log`: Generated CAD/media/log artifact
+
+## MOVE
+Files better suited for examples/, docs/, or experiments/.
+- `build_benchmark_06_clevis_bracket.py` -> `examples/`: Build script example
+- `build_benchmark_06_clevis_bracket_lightening_cutouts.py` -> `examples/`: Build script example
+- `build_cantilever_clevis_plate.py` -> `examples/`: Build script example
+- `build_clevis_mount.py` -> `examples/`: Build script example
+- `build_clevis_mount_bracket.py` -> `examples/`: Build script example
+- `build_clevis_mount_plate.py` -> `examples/`: Build script example
+- `build_dog_leg_link.py` -> `examples/`: Build script example
+- `build_double_clevis_mount.py` -> `examples/`: Build script example
+- `build_impeller_disk.py` -> `examples/`: Build script example
+- `build_impeller_disk3.py` -> `examples/`: Build script example
+- `build_mounting_fixture_plate.py` -> `examples/`: Build script example
+- `build_offset_link_bracket.py` -> `examples/`: Build script example
+- `build_offset_linkage_arm.py` -> `examples/`: Build script example
+- `build_radial_engine_cylinder.py` -> `examples/`: Build script example
+- `build_radial_engine_cylinder3.py` -> `examples/`: Build script example
+- `build_symmetric_u_bracket.py` -> `examples/`: Build script example
+- `build_u_bracket.py` -> `examples/`: Build script example
+- `inspect_put_solid.py` -> `experiments/`: Root-level test/inspect script
+- `inspect_section.py` -> `experiments/`: Root-level test/inspect script
+- `launch_and_build_linkage_arm.cmd` -> `experiments/`: Utility script
+- `live_validation/current3/feature_validation_results.json` -> `experiments/`: Live validation scripts are experimental
+- `live_validation/feature_builder_inspection.json` -> `experiments/`: Live validation scripts are experimental
+- `live_validation/feature_builder_probe.json` -> `experiments/`: Live validation scripts are experimental
+- `live_validation/feature_validation_results.json` -> `experiments/`: Live validation scripts are experimental
+- `live_validation/revolve_mirror_probe/probe.json` -> `experiments/`: Live validation scripts are experimental
+- `live_validation/revolve_mirror_probe2/probe.json` -> `experiments/`: Live validation scripts are experimental
+- `live_validation/revolve_mirror_probe3/probe.json` -> `experiments/`: Live validation scripts are experimental
+- `live_validation/revolve_mirror_probe4/probe.json` -> `experiments/`: Live validation scripts are experimental
+- `live_validation/revolve_mirror_probe5/probe.json` -> `experiments/`: Live validation scripts are experimental
+- `open_current_nx_result.cmd` -> `experiments/`: Utility script
+- `open_latest_nx_result.vbs` -> `experiments/`: Utility script
+- `test_bridge_export.py` -> `experiments/`: Root-level test/inspect script
+- `test_cli_export.py` -> `experiments/`: Root-level test/inspect script
+- `test_journal.py` -> `experiments/`: Root-level test/inspect script
+- `test_line.py` -> `experiments/`: Root-level test/inspect script
+- `test_section.py` -> `experiments/`: Root-level test/inspect script
+- `test_stl_inspect.py` -> `experiments/`: Root-level test/inspect script
+- `test_uf_stl.py` -> `experiments/`: Root-level test/inspect script
+- `test_vector.py` -> `experiments/`: Root-level test/inspect script
+- `codebase.md` -> `docs/`: Documentation in root directory
+
+## MANUAL REVIEW
+- `aaa.txt`: Needs manual review
+- `CODEBASE_EXPLAINED.md`: Needs manual review
+- `export_step_helper.py`: Needs manual review
+- `EXPRESSION_COLLISION_FIX_SUMMARY.md`: Needs manual review
+- `EXPRESSION_COLLISION_TEST_RESULTS.md`: Needs manual review
+- `feature_builder_inspection.json`: Needs manual review
+- `MCP_SERVER_DOCUMENTATION.txt`: Needs manual review
+- `PARAMETRIC_FIX_SUMMARY.md`: Needs manual review
+- `repository_minimalism_audit.md`: Needs manual review
+- `symmetric_u_bracket_stepped_bosses.stl.txt`: Needs manual review
+- `TODO_NXOPEN_ROADMAP.md`: Needs manual review
+
+## UNUSED CODE (VULTURE RESULTS)
+```
+src\nx_mcp\bridge\nx_bridge.py:169: unused function '_create_named_expression' (60% confidence)
+src\nx_mcp\bridge\nx_bridge.py:463: unused function '_edge_z_range' (60% confidence)
+src\nx_mcp\bridge\nx_bridge.py:606: unused function '_plane_normal' (60% confidence)
+src\nx_mcp\bridge\nx_bridge.py:1816: unused function '_subtract_cylinder_hole' (60% confidence)
+src\nx_mcp\bridge\runner.py:307: unused function 'run_tool' (60% confidence)
+src\nx_mcp\http_server.py:9: unused function 'mcp_endpoint' (60% confidence)
+src\nx_mcp\response.py:8: unused method 'is_ok' (60% confidence)
+src\nx_mcp\response.py:14: unused method 'is_ok' (60% confidence)
+src\nx_mcp\testing\mock_nxopen.py:16: unused class 'OverflowType' (60% confidence)
+src\nx_mcp\testing\mock_nxopen.py:17: unused variable 'ClearEdges' (60% confidence)
+src\nx_mcp\testing\mock_nxopen.py:113: unused variable 'kwargs' (100% confidence)
+src\nx_mcp\testing\mock_nxopen.py:118: unused method 'CreateSketchInPlaceBuilder2' (60% confidence)
+src\nx_mcp\testing\mock_nxopen.py:129: unused variable 'units' (100% confidence)
+src\nx_mcp\utils\geometry.py:4: unused function 'make_point' (60% confidence)
+src\nx_mcp\utils\geometry.py:9: unused function 'plane_normal' (60% confidence)
+```
+
+## EMPTY DIRECTORIES
+None.
+
+## DEPENDENCY GRAPH
+### Isolated Files (Zero inbound references)
+- `nx_mcp/utils/__init__.py` (Appears to be dead code or dynamically loaded)
+- `nx_mcp/tools/measure.py` (Appears to be dead code or dynamically loaded)
+- `nx_mcp/tools/assembly.py` (Appears to be dead code or dynamically loaded)
+- `nx_mcp/tools/surface_modeling.py` (Appears to be dead code or dynamically loaded)
+- `nx_mcp/tools/combine_operations.py` (Appears to be dead code or dynamically loaded)
+- `nx_mcp/tools/__init__.py` (Appears to be dead code or dynamically loaded)
+- `nx_mcp/__init__.py` (Appears to be dead code or dynamically loaded)
+- `nx_mcp/utils/geometry.py` (Appears to be dead code or dynamically loaded)
+- `nx_mcp/testing/__init__.py` (Appears to be dead code or dynamically loaded)
+- `nx_mcp/validate_nxopen.py` (Appears to be dead code or dynamically loaded)
+- `nx_mcp/tools/utility.py` (Appears to be dead code or dynamically loaded)
+- `nx_mcp/bridge/__init__.py` (Appears to be dead code or dynamically loaded)
+- `nx_mcp/tools/modeling.py` (Appears to be dead code or dynamically loaded)
+- `nx_mcp/tools/file_ops.py` (Appears to be dead code or dynamically loaded)
+- `nx_mcp/tools/sketch.py` (Appears to be dead code or dynamically loaded)
+- `nx_mcp/tools/edit_operations.py` (Appears to be dead code or dynamically loaded)
+
+### Imports
+- `nx_mcp/http_server.py` imports:
+  - `nx_mcp/server.py`
+- `nx_mcp/nx_session.py` imports:
+  - `nx_mcp/nxopen_loader.py`
+- `nx_mcp/server.py` imports:
+  - `nx_mcp/tools.py`
+  - `nx_mcp/tools/registry.py`
+  - `nx_mcp/bridge/runner.py`
+- `nx_mcp/tools/assembly.py` imports:
+  - `nx_mcp/bridge.py`
+  - `nx_mcp/nx_session.py`
+  - `nx_mcp/response.py`
+  - `nx_mcp/tools/registry.py`
+- `nx_mcp/tools/combine_operations.py` imports:
+  - `nx_mcp/bridge.py`
+  - `nx_mcp/response.py`
+  - `nx_mcp/tools/registry.py`
+- `nx_mcp/tools/edit_operations.py` imports:
+  - `nx_mcp/bridge.py`
+  - `nx_mcp/response.py`
+  - `nx_mcp/tools/registry.py`
+- `nx_mcp/tools/file_ops.py` imports:
+  - `nx_mcp/bridge.py`
+  - `nx_mcp/nx_session.py`
+  - `nx_mcp/response.py`
+  - `nx_mcp/tools/registry.py`
+- `nx_mcp/tools/measure.py` imports:
+  - `nx_mcp/bridge.py`
+  - `nx_mcp/nx_session.py`
+  - `nx_mcp/response.py`
+  - `nx_mcp/tools/registry.py`
+- `nx_mcp/tools/modeling.py` imports:
+  - `nx_mcp/bridge.py`
+  - `nx_mcp/nx_session.py`
+  - `nx_mcp/response.py`
+  - `nx_mcp/tools/registry.py`
+- `nx_mcp/tools/sketch.py` imports:
+  - `nx_mcp/bridge.py`
+  - `nx_mcp/nx_session.py`
+  - `nx_mcp/response.py`
+  - `nx_mcp/tools/registry.py`
+- `nx_mcp/tools/surface_modeling.py` imports:
+  - `nx_mcp/bridge.py`
+  - `nx_mcp/response.py`
+  - `nx_mcp/tools/registry.py`
+- `nx_mcp/tools/utility.py` imports:
+  - `nx_mcp/bridge.py`
+  - `nx_mcp/nx_session.py`
+  - `nx_mcp/response.py`
+  - `nx_mcp/tools/registry.py`
+- `nx_mcp/utils/geometry.py` imports:
+  - `nx_mcp/nx_session.py`
+
+## Overall Assessment
+> **If I cloned this repository today, would every file justify its existence?**
+>
+> **No.** The repository contains a significant number of generated CAD models, logs, and scratch scripts in the root directory that obscure the core logic. The `src/` directory is highly cohesive, but the root needs aggressive pruning. By applying the DELETE and MOVE recommendations outlined above, the repository will become a lean, professional codebase ready for open-source publication.

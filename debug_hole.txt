@@ -1,4 +1,0 @@
-x_trans=66.72368855056911 y_trans=4.1042417199080266 z_trans=53.0
-target_body=<NXOpen.Body object at 0x000002241E69CFC0> tag=57957
-pt_plus=[66.72368855056911, 4.1042417199080266, 53.1] contain_plus=2 pt_minus=[66.72368855056911, 4.1042417199080266, 52.9] contain_minus=2
-final_dir=-Z

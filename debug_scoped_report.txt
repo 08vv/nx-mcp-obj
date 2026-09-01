@@ -1,0 +1,16 @@
+START
+After unite: Edge Tag 57686 (type=<class 'NXOpen.EdgeEdgeType'>): Z1=0.00, Z2=0.00, R=0.00
+After unite: Edge Tag 57748 (type=<class 'NXOpen.EdgeEdgeType'>): Z1=0.00, Z2=0.00, R=0.00
+After unite: Edge Tag 57687 (type=<class 'NXOpen.EdgeEdgeType'>): Z1=0.00, Z2=0.00, R=0.00
+After unite: Edge Tag 57773 (type=<class 'NXOpen.EdgeEdgeType'>): Z1=0.00, Z2=0.00, R=0.00
+Fillet hub result: {'ok': True, 'message': 'Fillet R1.0 on 1 edges'}
+After hub fillet: Edge Tag 57686 (type=<class 'NXOpen.EdgeEdgeType'>): Z1=0.00, Z2=0.00, R=0.00
+After hub fillet: Edge Tag 57687 (type=<class 'NXOpen.EdgeEdgeType'>): Z1=0.00, Z2=0.00, R=0.00
+After hub fillet: Edge Tag 57791 (type=<class 'NXOpen.EdgeEdgeType'>): Z1=0.00, Z2=0.00, R=0.00
+After hub fillet: Edge Tag 57773 (type=<class 'NXOpen.EdgeEdgeType'>): Z1=0.00, Z2=0.00, R=0.00
+After hub fillet: Edge Tag 57790 (type=<class 'NXOpen.EdgeEdgeType'>): Z1=0.00, Z2=0.00, R=0.00
+m_base resolved: [57791, 57773, 57790]
+  m_base Edge 57791: Z=0.00, R=0.00
+  m_base Edge 57773: Z=0.00, R=0.00
+  m_base Edge 57790: Z=0.00, R=0.00
+Fillet base bottom result: {'ok': True, 'message': 'Fillet R1.0 on 3 edges'}

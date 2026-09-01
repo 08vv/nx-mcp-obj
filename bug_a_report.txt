@@ -1,0 +1,10 @@
+=== BUG A: Fresh Part Creation & Stale Part Guardrail Live Test ===
+1. Initial create_part: {'ok': True, 'message': 'Created and displayed fresh part: C:\\Users\\HP\\nx-mcp\\test_bug_a_part.prt', 'filepath': 'C:\\Users\\HP\\nx-mcp\\test_bug_a_part.prt'}
+Features before recreation: ['Cylinder(0)', 'Cylinder(1)', 'Subtract(2)'] (count=3)
+2. Recreate create_part (same path): {'ok': True, 'message': 'Created and displayed fresh part: C:\\Users\\HP\\nx-mcp\\test_bug_a_part.prt', 'filepath': 'C:\\Users\\HP\\nx-mcp\\test_bug_a_part.prt'}
+Features after recreation: [] (count=0)
+PASS: create_part successfully cleared and created a genuinely empty 0-feature part.
+3. open_part on non-empty part: {'ok': True, 'message': 'Part already open, activated: C:\\Users\\HP\\nx-mcp\\test_bug_a_part.prt [NOTICE: Part contains 1 features and 1 bodies]', 'filepath': 'c:\\users\\hp\\nx-mcp\\test_bug_a_part.prt', 'existing_features_count': 1, 'existing_bodies_count': 1}
+PASS: open_part correctly reported existing features.
+
+ALL BUG A TESTS PASSED CLEANLY!

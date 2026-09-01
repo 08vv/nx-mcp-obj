@@ -1,0 +1,19 @@
+[
+  "CreateAdaptiveShellBuilder",
+  "CreateAdmOffsetRegionBuilder",
+  "CreateChangeShellThicknessBuilder",
+  "CreateMakeOffsetBuilder",
+  "CreateOffsetCurveBuilder",
+  "CreateOffsetEmbossBuilder",
+  "CreateOffsetFaceBuilder",
+  "CreateOffsetRegionBuilder",
+  "CreateOffsetSurfaceBuilder",
+  "CreateScaleBuilder",
+  "CreateShellBuilder",
+  "CreateShellFaceBuilder",
+  "CreateThickenBuilder",
+  "CreateThroughCurveMeshBuilder",
+  "CreateThroughCurvesBuilder",
+  "CreateVarOffsetFaceBuilder",
+  "CreateVariableOffsetBuilder"
+]

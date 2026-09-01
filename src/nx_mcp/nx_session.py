@@ -1,5 +1,6 @@
 from .nxopen_loader import load_nxopen
 
+
 class NXSession:
     _instance = None
     _nxopen = None
