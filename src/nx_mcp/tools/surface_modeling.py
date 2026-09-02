@@ -10,19 +10,22 @@ from nx_mcp.tools._common import _bridge_result, _use_mock_nxopen
 
 
 @mcp_tool(
-    "create_base_surface", "Create a base bounded plane surface on XY/XZ/YZ plane"
+    "create_base_surface",
+    "Create a rectangular planar sheet body on XY/XZ/YZ plane for surface modeling workflows. "
+    "Note: This creates a permanent reference sheet body (for trim/sew/thicken), not a 2D sketch plane. "
+    "For 2D sketch offset positioning, use create_sketch(plane='XY', z_offset=...) or create_real_sketch(z_offset=...)."
 )
 def create_base_surface(plane: Literal["XY", "XZ", "YZ"] = "XY", width: float = None, height: float = None):
     """
-    Create a base bounded plane surface on XY/XZ/YZ plane.
+    Create a base bounded plane surface (sheet body) on XY/XZ/YZ plane for surface modeling operations.
 
     Args:
-        plane (str): Parameter plane.
-        width (float): Parameter width.
-        height (float): Parameter height.
+        plane (str): Plane orientation ('XY', 'XZ', or 'YZ').
+        width (float): Width in millimeters.
+        height (float): Height in millimeters.
 
     Returns:
-        ToolResult: A confirmation message of the operation.
+        ToolResult: Confirmation message of the created sheet body.
     """
     try:
         if width is None or height is None:

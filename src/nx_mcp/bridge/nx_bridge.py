@@ -1623,10 +1623,10 @@ def save_part():
     return {"ok": True, "message": "Saved", "filepath": filepath}
 
 
-def create_sketch(plane="XY"):
+def create_sketch(plane="XY", z_offset=0.0, origin_x=0.0, origin_y=0.0, rotate_z_deg=0.0):
     global ACTIVE_SKETCH_PLANE
 
-    plane = plane.upper()
+    plane = str(plane or "XY").strip().upper()
     if plane not in {"XY", "XZ", "YZ"}:
         return {"ok": False, "error": f"Invalid sketch plane: {plane}"}
 
@@ -1635,17 +1635,29 @@ def create_sketch(plane="XY"):
     if "last_curves" in _state and _state["last_curves"]:
         _state.setdefault("curve_history", []).append(list(_state["last_curves"]))
 
+    z_val = _eval_val(z_offset)
+    ox_val = _eval_val(origin_x)
+    oy_val = _eval_val(origin_y)
+    rot_val = _eval_val(rotate_z_deg)
+
     ACTIVE_SKETCH_PLANE = plane
     sketch_id = _register_sketch(plane)
     _state["last_curves"] = []
-    _state["sketch_origin"] = [0.0, 0.0, 0.0]
-    _state["sketch_rotation"] = 0.0
+    _state["sketch_origin"] = [ox_val, oy_val, z_val]
+    _state["sketch_rotation"] = rot_val
+    _state["active_sketch"] = None
     _state["profile_start_index"] = len(_state.get("curve_history", []))
-    return {"ok": True, "message": f"Sketch created on {plane} plane", "sketch_id": sketch_id}
+    return {
+        "ok": True,
+        "message": f"Sketch created on {plane} plane (z_offset={z_val}, origin=[{ox_val},{oy_val}], rot={rot_val}°)",
+        "sketch_id": sketch_id,
+    }
 
 
-def _point_on_active_plane(x, y):
+def _point_on_active_plane(x, y, z_override=None):
     ox, oy, oz = _state.get("sketch_origin", [0.0, 0.0, 0.0])
+    if z_override is not None:
+        oz = float(z_override)
     angle_deg = _state.get("sketch_rotation", 0.0)
     
     if ACTIVE_SKETCH_PLANE == "XY":
@@ -1660,11 +1672,12 @@ def _point_on_active_plane(x, y):
     return NXOpen.Point3d(ox, x + oy, y + oz)
 
 
-def draw_rectangle(x, y, width, height):
+def draw_rectangle(x, y, width, height, z=None):
     x = float(x)
     y = float(y)
     width = float(width)
     height = float(height)
+    z_override = _eval_val(z) if z is not None else None
 
     part = _ensure_work_part()
 
@@ -1679,8 +1692,8 @@ def draw_rectangle(x, y, width, height):
     active_sketch = _state.get("active_sketch")
     for index in range(4):
         line = part.Curves.CreateLine(
-            _point_on_active_plane(corners[index][0], corners[index][1]),
-            _point_on_active_plane(corners[index + 1][0], corners[index + 1][1]),
+            _point_on_active_plane(corners[index][0], corners[index][1], z_override=z_override),
+            _point_on_active_plane(corners[index + 1][0], corners[index + 1][1], z_override=z_override),
         )
         lines.append(line)
         if active_sketch is not None:
@@ -1717,10 +1730,11 @@ def _normal_for_active_plane():
     return _normal_for_plane(ACTIVE_SKETCH_PLANE)
 
 
-def draw_circle(cx, cy, radius):
+def draw_circle(cx, cy, radius, z=None):
     cx = _eval_val(cx)
     cy = _eval_val(cy)
     radius = _eval_val(radius)
+    z_override = _eval_val(z) if z is not None else None
 
     if radius <= 0.0:
         return {"ok": False, "error": "Circle radius must be positive"}
@@ -1736,7 +1750,7 @@ def draw_circle(cx, cy, radius):
     y_dir = NXOpen.Vector3d(-sin_a, cos_a, 0.0)
 
     circle = part.Curves.CreateArc(
-        _point_on_active_plane(cx, cy),
+        _point_on_active_plane(cx, cy, z_override=z_override),
         x_dir,
         y_dir,
         radius,
@@ -1759,16 +1773,17 @@ def draw_circle(cx, cy, radius):
     return {"ok": True, "message": f"Circle {cx},{cy} R={radius}", "curve_id": cid}
 
 
-def draw_line(x1, y1, x2, y2):
+def draw_line(x1, y1, x2, y2, z=None):
     x1 = _eval_val(x1)
     y1 = _eval_val(y1)
     x2 = _eval_val(x2)
     y2 = _eval_val(y2)
+    z_override = _eval_val(z) if z is not None else None
 
     part = _ensure_work_part()
     line = part.Curves.CreateLine(
-        _point_on_active_plane(x1, y1),
-        _point_on_active_plane(x2, y2),
+        _point_on_active_plane(x1, y1, z_override=z_override),
+        _point_on_active_plane(x2, y2, z_override=z_override),
     )
     active_sketch = _state.get("active_sketch")
     if active_sketch is not None:
@@ -1786,12 +1801,13 @@ def draw_line(x1, y1, x2, y2):
     return {"ok": True, "message": f"Line {x1},{y1} to {x2},{y2}", "curve_id": cid}
 
 
-def draw_arc(cx, cy, radius, start_angle, end_angle):
+def draw_arc(cx, cy, radius, start_angle, end_angle, z=None):
     cx = _eval_val(cx)
     cy = _eval_val(cy)
     radius = _eval_val(radius)
     start_angle = _eval_val(start_angle)
     end_angle = _eval_val(end_angle)
+    z_override = _eval_val(z) if z is not None else None
 
     if radius <= 0.0:
         return {"ok": False, "error": "Arc radius must be positive"}
@@ -1808,7 +1824,7 @@ def draw_arc(cx, cy, radius, start_angle, end_angle):
 
     rot_val = _state.get("sketch_rotation", 0.0)
     arc = part.Curves.CreateArc(
-        _point_on_active_plane(cx, cy),
+        _point_on_active_plane(cx, cy, z_override=z_override),
         x_dir,
         y_dir,
         radius,
@@ -1847,13 +1863,14 @@ def draw_cylinder_profile(outer_radius, inner_radius):
     }
 
 
-def draw_spline(points, degree=3, closed=False, plane="active"):
+def draw_spline(points, degree=3, closed=False, plane="active", z=None):
     """
     Draw a Studio Spline through 2D active-sketch-plane or 3D world points.
     Accepts point list as array pairs [[x, y], ...] or dict objects [{"x": ..., "y": ...}, ...].
     """
     degree = int(degree)
     closed = bool(closed)
+    z_override = _eval_val(z) if z is not None else None
     if degree < 1 or degree > 5:
         return {"ok": False, "error": "Spline degree must be between 1 and 5"}
     if not isinstance(points, (list, tuple)) or len(points) < (degree + 1):
@@ -1899,7 +1916,7 @@ def draw_spline(points, degree=3, closed=False, plane="active"):
         if len(p) == 3:
             pt3d = NXOpen.Point3d(p[0], p[1], p[2])
         else:
-            pt3d = _point_on_active_plane(p[0], p[1])
+            pt3d = _point_on_active_plane(p[0], p[1], z_override=z_override)
         studio_points.append(part.Points.CreatePoint(pt3d))
 
     builder = part.Features.CreateStudioSplineBuilderEx(NXOpen.Features.Feature.Null)
@@ -2194,10 +2211,12 @@ def draw_rounded_rectangle(arm_length, arm_width, end_radius, cx_left=None, cy=0
         cx_left = 0.0
     cx_left = _eval_val(cx_left)
     cy      = _eval_val(cy)
-    if z is None:
-        z_val = 0.0
-    else:
+    if z is not None:
         z_val = _eval_val(z)
+        z_override = z_val
+    else:
+        z_val = _state.get("sketch_origin", [0.0, 0.0, 0.0])[2]
+        z_override = None
 
     cx_right = cx_left + (arm_length - 2.0 * end_radius)
     half_w   = arm_width / 2.0
@@ -2215,27 +2234,27 @@ def draw_rounded_rectangle(arm_length, arm_width, end_radius, cx_left=None, cy=0
     curves = []
 
     # Left arc: 90° → 270° (left-facing semicircle, CCW)
-    p_left = _point_on_active_plane(cx_left, cy)
+    p_left = _point_on_active_plane(cx_left, cy, z_override=z_override)
     curves.append(part.Curves.CreateArc(
         p_left, x_dir, y_dir, end_radius,
         math.radians(90.0), math.radians(270.0)
     ))
 
     # Bottom line: left_bottom → right_bottom
-    p1 = _point_on_active_plane(cx_left,  cy - half_w)
-    p2 = _point_on_active_plane(cx_right, cy - half_w)
+    p1 = _point_on_active_plane(cx_left,  cy - half_w, z_override=z_override)
+    p2 = _point_on_active_plane(cx_right, cy - half_w, z_override=z_override)
     curves.append(part.Curves.CreateLine(p1, p2))
 
     # Right arc: 270° → 90° (right-facing semicircle, CCW)
-    p_right = _point_on_active_plane(cx_right, cy)
+    p_right = _point_on_active_plane(cx_right, cy, z_override=z_override)
     curves.append(part.Curves.CreateArc(
         p_right, x_dir, y_dir, end_radius,
         math.radians(270.0), math.radians(90.0)
     ))
 
     # Top line: right_top → left_top  (closes the loop)
-    p3 = _point_on_active_plane(cx_right, cy + half_w)
-    p4 = _point_on_active_plane(cx_left,  cy + half_w)
+    p3 = _point_on_active_plane(cx_right, cy + half_w, z_override=z_override)
+    p4 = _point_on_active_plane(cx_left,  cy + half_w, z_override=z_override)
     curves.append(part.Curves.CreateLine(p3, p4))
 
     active_sketch = _state.get("active_sketch")
@@ -3473,13 +3492,6 @@ def create_real_sketch(plane="XY", z_offset=0.0, origin_x=0.0, origin_y=0.0, rot
 
     # --- Try to create a real sketch on a local Plane object ---
     builder_factory = getattr(work_part.Sketches, "CreateNewSketchInPlaceBuilder", None)
-    if not callable(builder_factory):
-        builder_factory = getattr(work_part.Sketches, "CreateSimpleSketchInPlaceBuilder", None)
-    if not callable(builder_factory):
-        builder_factory = getattr(work_part.Sketches, "CreateNewSketch", None)
-    if not callable(builder_factory):
-        builder_factory = getattr(work_part.Sketches, "CreateSketchInPlaceBuilder", None)
-
     if callable(builder_factory):
         try:
             origin = NXOpen.Point3d(ox_val, oy_val, z_val)
@@ -3488,24 +3500,19 @@ def create_real_sketch(plane="XY", z_offset=0.0, origin_x=0.0, origin_y=0.0, rot
                 origin, normal, NXOpen.SmartObject.UpdateOption.WithinModeling
             )
 
-            sketch_builder = builder_factory(NXOpen.Features.Feature.Null)
+            sketch_builder = builder_factory(NXOpen.Sketch.Null)
             try:
-                for attr in ("PlaneReference", "PlacementFace", "SketchOrigin"):
-                    if hasattr(sketch_builder, attr):
-                        try:
-                            setattr(sketch_builder, attr, plane_obj)
-                            break
-                        except Exception:
-                            pass
-                feature = sketch_builder.CommitFeature()
+                sketch_builder.PlaneReference = plane_obj
+                sketch = sketch_builder.Commit()
             finally:
                 sketch_builder.Destroy()
 
+            feature = getattr(sketch, "Feature", sketch)
             _remember_feature(feature)
-            sketch_name = _feature_name(feature)
-            _state["sketches"][plane] = feature
-            _state["sketches"][sketch_name.lower()] = feature
-            _state["active_sketch"] = feature
+            sketch_name = _feature_name(feature) if hasattr(feature, "GetFeatureName") else getattr(sketch, "Name", "SKETCH")
+            _state.setdefault("sketches", {})[plane] = sketch
+            _state.setdefault("sketches", {})[sketch_name.lower()] = sketch
+            _state["active_sketch"] = sketch
             fit_view()
             return {
                 "ok": True,
@@ -3513,6 +3520,7 @@ def create_real_sketch(plane="XY", z_offset=0.0, origin_x=0.0, origin_y=0.0, rot
                     f"Sketch created on {plane} plane (id={sketch_name}) "
                     f"with offset z={z_val} rotation={rot_val}"
                 ),
+                "sketch_id": sketch_name,
             }
         except Exception as e:
             return {"ok": False, "error": f"Failed to create sketch in NX: {e}"}

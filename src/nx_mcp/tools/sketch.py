@@ -17,96 +17,117 @@ def _bridge_result(result):
     return ToolError(result.get("error", "NX bridge command failed"))
 
 
-@mcp_tool("create_sketch", "Create a new sketch on a plane XY XZ or YZ")
-def create_sketch(plane: str = "XY"):
+@mcp_tool(
+    "create_sketch",
+    "Create a new 2D sketch plane (XY, XZ, or YZ) with optional z_offset, origin offsets, and rotation. "
+    "All subsequent 2D drawing calls will be positioned on this sketch plane."
+)
+def create_sketch(
+    plane: str = "XY",
+    z_offset: float = 0.0,
+    origin_x: float = 0.0,
+    origin_y: float = 0.0,
+    rotate_z_deg: float = 0.0,
+):
     try:
+        z_offset = float(z_offset)
+        origin_x = float(origin_x)
+        origin_y = float(origin_y)
+        rotate_z_deg = float(rotate_z_deg)
         if not _use_mock_nxopen():
-            return _bridge_result(runner.call_nx("create_sketch", {"plane": plane}))
-        return ToolResult(f"Sketch created on {plane} plane")
+            return _bridge_result(
+                runner.call_nx(
+                    "create_sketch",
+                    {
+                        "plane": plane,
+                        "z_offset": z_offset,
+                        "origin_x": origin_x,
+                        "origin_y": origin_y,
+                        "rotate_z_deg": rotate_z_deg,
+                    },
+                )
+            )
+        return ToolResult(f"Sketch created on {plane} plane (z_offset={z_offset})")
     except Exception as e:
         return ToolError(str(e))
 
 
-@mcp_tool("draw_line", "Draw a line from x1 y1 to x2 y2. Curves drawn accumulate in the active sketch profile.")
-def draw_line(x1: float, y1: float, x2: float, y2: float):
+@mcp_tool("draw_line", "Draw a line from x1 y1 to x2 y2 with optional z coordinate override. Curves accumulate in the active sketch profile.")
+def draw_line(x1: float, y1: float, x2: float, y2: float, z: float = None):
     try:
+        payload = {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
+        if z is not None:
+            payload["z"] = float(z)
         if not _use_mock_nxopen():
-            return _bridge_result(
-                runner.call_nx(
-                    "draw_line",
-                    {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
-                )
-            )
+            return _bridge_result(runner.call_nx("draw_line", payload))
         nxopen = NXSession.nxopen()
         part = NXSession.work_part()
-        part.Curves.CreateLine(nxopen.Point3d(x1, y1, 0.0), nxopen.Point3d(x2, y2, 0.0))
+        z_val = float(z) if z is not None else 0.0
+        part.Curves.CreateLine(nxopen.Point3d(x1, y1, z_val), nxopen.Point3d(x2, y2, z_val))
         return ToolResult(f"Line {x1},{y1} to {x2},{y2}")
     except Exception as e:
         return ToolError(str(e))
 
 
-@mcp_tool("draw_rectangle", "Draw rectangle from corner x y with width and height. Curves drawn accumulate in the active sketch profile.")
-def draw_rectangle(x: float, y: float, width: float, height: float):
+@mcp_tool("draw_rectangle", "Draw rectangle from corner x y with width and height and optional z coordinate override. Curves accumulate in the active sketch profile.")
+def draw_rectangle(x: float, y: float, width: float, height: float, z: float = None):
     try:
+        payload = {"x": x, "y": y, "width": width, "height": height}
+        if z is not None:
+            payload["z"] = float(z)
         if not _use_mock_nxopen():
-            return _bridge_result(
-                runner.call_nx(
-                    "draw_rectangle",
-                    {"x": x, "y": y, "width": width, "height": height},
-                )
-            )
+            return _bridge_result(runner.call_nx("draw_rectangle", payload))
         nxopen = NXSession.nxopen()
         part = NXSession.work_part()
+        z_val = float(z) if z is not None else 0.0
         corners = [(x,y),(x+width,y),(x+width,y+height),(x,y+height),(x,y)]
         for i in range(4):
             part.Curves.CreateLine(
-                nxopen.Point3d(corners[i][0], corners[i][1], 0.0),
-                nxopen.Point3d(corners[i+1][0], corners[i+1][1], 0.0)
+                nxopen.Point3d(corners[i][0], corners[i][1], z_val),
+                nxopen.Point3d(corners[i+1][0], corners[i+1][1], z_val)
             )
         return ToolResult(f"Rectangle {x},{y} size {width}x{height}")
     except Exception as e:
         return ToolError(str(e))
 
 
-@mcp_tool("draw_circle", "Draw circle at cx cy with radius. Curves drawn accumulate in the active sketch profile.")
-def draw_circle(cx: float, cy: float, radius: float):
+@mcp_tool("draw_circle", "Draw circle at cx cy with radius and optional z coordinate override. Curves accumulate in the active sketch profile.")
+def draw_circle(cx: float, cy: float, radius: float, z: float = None):
     try:
+        payload = {"cx": cx, "cy": cy, "radius": radius}
+        if z is not None:
+            payload["z"] = float(z)
         if not _use_mock_nxopen():
-            return _bridge_result(
-                runner.call_nx(
-                    "draw_circle",
-                    {"cx": cx, "cy": cy, "radius": radius},
-                )
-            )
+            return _bridge_result(runner.call_nx("draw_circle", payload))
         nxopen = NXSession.nxopen()
         part = NXSession.work_part()
-        part.Curves.CreateArc(nxopen.Point3d(cx, cy, 0.0), nxopen.Vector3d(0, 0, 1), radius, 0.0, 6.28318)
+        z_val = float(z) if z is not None else 0.0
+        part.Curves.CreateArc(nxopen.Point3d(cx, cy, z_val), nxopen.Vector3d(0, 0, 1), radius, 0.0, 6.28318)
         return ToolResult(f"Circle {cx},{cy} R={radius}")
     except Exception as e:
         return ToolError(str(e))
 
 
-@mcp_tool("draw_arc", "Draw arc at cx cy with radius from start_angle to end_angle degrees. Curves drawn accumulate in the active sketch profile.")
-def draw_arc(cx: float, cy: float, radius: float, start_angle: float, end_angle: float):
+@mcp_tool("draw_arc", "Draw arc at cx cy with radius from start_angle to end_angle degrees with optional z coordinate override. Curves accumulate in the active sketch profile.")
+def draw_arc(cx: float, cy: float, radius: float, start_angle: float, end_angle: float, z: float = None):
     try:
+        payload = {
+            "cx": cx,
+            "cy": cy,
+            "radius": radius,
+            "start_angle": start_angle,
+            "end_angle": end_angle,
+        }
+        if z is not None:
+            payload["z"] = float(z)
         if not _use_mock_nxopen():
-            return _bridge_result(
-                runner.call_nx(
-                    "draw_arc",
-                    {
-                        "cx": cx,
-                        "cy": cy,
-                        "radius": radius,
-                        "start_angle": start_angle,
-                        "end_angle": end_angle,
-                    },
-                )
-            )
+            return _bridge_result(runner.call_nx("draw_arc", payload))
         import math
         nxopen = NXSession.nxopen()
         part = NXSession.work_part()
+        z_val = float(z) if z is not None else 0.0
         part.Curves.CreateArc(
-            nxopen.Point3d(cx, cy, 0.0), nxopen.Vector3d(0, 0, 1),
+            nxopen.Point3d(cx, cy, z_val), nxopen.Vector3d(0, 0, 1),
             radius, math.radians(start_angle), math.radians(end_angle)
         )
         return ToolResult(f"Arc {cx},{cy} r={radius} {start_angle} to {end_angle} deg")
@@ -214,18 +235,18 @@ def add_constraint_fixed(curve_index: int = 0):
 
 @mcp_tool(
     "draw_spline",
-    "Draw a spline curve passing through 2D or 3D interpolation points. Points can be [[x,y],...] or [{'x':..,'y':..},...].",
+    "Draw a spline curve passing through 2D or 3D interpolation points with optional z coordinate override. Points can be [[x,y],...] or [{'x':..,'y':..},...].",
 )
-def draw_spline(points: list, degree: int = 3, closed: bool = False, plane: str = "active"):
+def draw_spline(points: list, degree: int = 3, closed: bool = False, plane: str = "active", z: float = None):
     try:
         if not points or len(points) < 2:
             return ToolError("Spline requires at least 2 points")
+        payload = {"points": points, "degree": degree, "closed": closed, "plane": plane}
+        if z is not None:
+            payload["z"] = float(z)
         if not _use_mock_nxopen():
             return _bridge_result(
-                runner.call_nx(
-                    "draw_spline",
-                    {"points": points, "degree": degree, "closed": closed, "plane": plane},
-                )
+                runner.call_nx("draw_spline", payload)
             )
         return ToolResult(f"Spline with {len(points)} points created (mock mode)")
     except Exception as e:
