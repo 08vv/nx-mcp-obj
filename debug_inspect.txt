@@ -1,8 +1,0 @@
-Edge Tag 57686: type=<class 'NXOpen.EdgeEdgeType'>, count=0, pt1=[0.0, 0.0, 0.0], pt2=[0.0, 0.0, 0.0], length=376.99
-Edge Tag 57748: type=<class 'NXOpen.EdgeEdgeType'>, count=0, pt1=[0.0, 0.0, 0.0], pt2=[0.0, 0.0, 0.0], length=125.66
-Edge Tag 57687: type=<class 'NXOpen.EdgeEdgeType'>, count=0, pt1=[0.0, 0.0, 0.0], pt2=[0.0, 0.0, 0.0], length=376.99
-Edge Tag 57773: type=<class 'NXOpen.EdgeEdgeType'>, count=0, pt1=[0.0, 0.0, 0.0], pt2=[0.0, 0.0, 0.0], length=125.66
-  Edge 57686 fillet SUCCESS: Edge Blend(3)
-  Edge 57748 fillet SUCCESS: Edge Blend(4)
-  Edge 57687 fillet SUCCESS: Edge Blend(5)
-  Edge 57773 fillet SUCCESS: Edge Blend(6)
