@@ -175,3 +175,76 @@ def test_feature_scoped_edge_selection_delta_tracking(monkeypatch):
             sys.modules["NXOpen.UF"] = orig_nxopen_uf
         else:
             sys.modules.pop("NXOpen.UF", None)
+
+
+def test_spatial_edge_resolution_composite_and_errors(monkeypatch):
+    mock_nxopen = MagicMock()
+    mock_uf_session = MagicMock()
+    mock_nxopen.UF.UFSession.GetUFSession.return_value = mock_uf_session
+    mock_nxopen.Session.GetSession.return_value = MagicMock()
+
+    orig_nxopen = sys.modules.get("NXOpen")
+    orig_nxopen_uf = sys.modules.get("NXOpen.UF")
+
+    sys.modules["NXOpen"] = mock_nxopen
+    sys.modules["NXOpen.UF"] = mock_nxopen.UF
+
+    try:
+        from nx_mcp.bridge import nx_bridge
+
+        def make_mock_edge(tag, p1, p2):
+            e = MagicMock()
+            e.Tag = tag
+            v1, v2 = MagicMock(), MagicMock()
+            v1.X, v1.Y, v1.Z = p1
+            v2.X, v2.Y, v2.Z = p2
+            e.GetVertices.return_value = [v1, v2]
+            e.GetLength.return_value = sum((b - a) ** 2 for a, b in zip(p1, p2)) ** 0.5
+            return e
+
+        # Composite body mock with 3 Z-bands (Z=0..6, Z=39..45)
+        top_edge = make_mock_edge(1, (0, 0, 45), (10, 0, 45))
+        bot_edge1 = make_mock_edge(2, (0, 0, 0), (20, 0, 0))
+        bot_edge2 = make_mock_edge(3, (0, 0, 0), (0, 15, 0))
+        vert_edge1 = make_mock_edge(4, (0, 0, 0), (0, 0, 6))
+        vert_edge2 = make_mock_edge(5, (10, 5, 39), (10, 5, 45))
+
+        body = MagicMock()
+        body.GetEdges.return_value = [top_edge, bot_edge1, bot_edge2, vert_edge1, vert_edge2]
+        monkeypatch.setattr(nx_bridge, "_resolve_body", lambda ref: body)
+
+        # 1. Top edges (Z=45)
+        res_top = nx_bridge._resolve_edges("last", "top_edges")
+        assert res_top == [top_edge]
+
+        # 2. Bottom edges (Z=0)
+        res_bot = nx_bridge._resolve_edges("last", "bottom_edges")
+        assert res_bot == [bot_edge1, bot_edge2]
+
+        # 3. Vertical edges
+        res_vert = nx_bridge._resolve_edges("last", "vertical_edges")
+        assert res_vert == [vert_edge1, vert_edge2]
+
+        # 4. X aligned edges
+        res_x = nx_bridge._resolve_edges("last", "x_edges")
+        assert res_x == [top_edge, bot_edge1]
+
+        # 5. Y aligned edges
+        res_y = nx_bridge._resolve_edges("last", "y_edges")
+        assert res_y == [bot_edge2]
+
+        # 6. Unrecognized reference raises SelectionError
+        import pytest
+        with pytest.raises(nx_bridge.SelectionError, match="Unrecognized or unsupported"):
+            nx_bridge._resolve_edges("last", "invalid_edge_ref")
+
+    finally:
+        if orig_nxopen:
+            sys.modules["NXOpen"] = orig_nxopen
+        else:
+            sys.modules.pop("NXOpen", None)
+        if orig_nxopen_uf:
+            sys.modules["NXOpen.UF"] = orig_nxopen_uf
+        else:
+            sys.modules.pop("NXOpen.UF", None)
+

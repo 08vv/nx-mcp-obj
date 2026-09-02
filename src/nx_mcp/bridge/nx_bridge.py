@@ -399,6 +399,9 @@ def _remember_feature(feature):
                         _register_body(body)
                     else:
                         _state["last_body"] = body
+                        b_tag = getattr(body, "Tag", None)
+                        if b_tag and b_tag in _state.get("object_to_id", {}):
+                            _state["last_body_id"] = _state["object_to_id"][b_tag]
         except Exception:
             pass
 
@@ -442,7 +445,10 @@ def _register_body(body):
         return None
     tag = getattr(body, "Tag", None)
     if tag and tag in _state.get("object_to_id", {}):
-        return _state["object_to_id"][tag]
+        bid = _state["object_to_id"][tag]
+        _state["last_body"] = body
+        _state["last_body_id"] = bid
+        return bid
 
     _state["body_counter"] = _state.get("body_counter", 0) + 1
     body_id = f"body_{_state['body_counter']}"
@@ -488,7 +494,8 @@ def _register_feature(feature):
         get_bodies = getattr(feature, "GetBodies", None)
         if callable(get_bodies):
             for b in get_bodies() or []:
-                _register_body(b)
+                if _is_real_solid_body(b):
+                    _register_body(b)
     except Exception:
         pass
 
@@ -754,20 +761,17 @@ def _body_bounds(body):
                 if vertex_count > 0:
                     points.extend([_point_tuple(pt1), _point_tuple(pt2)])
         except Exception:
-            continue
+            pass
         if hasattr(edge, "GetVertices"):
             for v in edge.GetVertices() or []:
-                if hasattr(v, "Coordinates"):
-                    points.append(_point_tuple(v.Coordinates))
-
-    if not points and mod is not None:
-        for edge in edges:
-            try:
-                z, r = _edge_z_and_radius(edge)
-                if r > 0:
-                    points.extend([(-r, -r, z), (r, r, z)])
-            except Exception:
-                pass
+                coords = getattr(v, "Coordinates", v)
+                points.append(_point_tuple(coords))
+        try:
+            z, r = _edge_z_and_radius(edge)
+            if r > 0:
+                points.extend([(-r, -r, z), (r, r, z), (r, -r, z), (-r, r, z)])
+        except Exception:
+            pass
 
     if not points:
         raise SelectionError(f"Could not determine body bounds for '{_body_name(body)}'")
@@ -792,7 +796,7 @@ def _is_real_solid_body(body):
         if dx < 1e-4 and dy < 1e-4 and dz < 1e-4:
             return False
     except Exception:
-        pass
+        return False
     return True
 
 
@@ -988,14 +992,46 @@ def _format_bounds(body):
         return f"[bounds: {e}]"
 
 
+def _get_edge_endpoints(edge):
+    """Return ((x1, y1, z1), (x2, y2, z2)) for an NXOpen Edge object."""
+    if edge is None:
+        return None, None
+    try:
+        if hasattr(edge, "GetVertices"):
+            verts = list(edge.GetVertices() or [])
+            if len(verts) >= 2:
+                return _point_tuple(verts[0]), _point_tuple(verts[1])
+            elif len(verts) == 1:
+                p = _point_tuple(verts[0])
+                return p, p
+    except Exception:
+        pass
+    try:
+        uf = _get_uf()
+        if uf and hasattr(uf, "Eval"):
+            ev = uf.Eval.Initialize(edge.Tag)
+            try:
+                limits = uf.Eval.AskLimits(ev)
+                pt1_data = uf.Eval.Evaluate(ev, 0, limits[0])
+                pt2_data = uf.Eval.Evaluate(ev, 0, limits[1])
+                p1 = _point_tuple(pt1_data[0] if isinstance(pt1_data, (list, tuple)) else pt1_data)
+                p2 = _point_tuple(pt2_data[0] if isinstance(pt2_data, (list, tuple)) else pt2_data)
+                return p1, p2
+            finally:
+                try:
+                    uf.Eval.Free(ev)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return None, None
+
+
 def _edge_midpoint(edge):
-    mod = _get_uf_modl()
-    if mod is None:
-        return (0.0, 0.0, 0.0)
-    pt1, pt2, _vertex_count = mod.AskEdgeVerts(edge.Tag)
-    p1 = _point_tuple(pt1)
-    p2 = _point_tuple(pt2)
-    return tuple((a + b) / 2.0 for a, b in zip(p1, p2))
+    p1, p2 = _get_edge_endpoints(edge)
+    if p1 and p2:
+        return tuple((a + b) / 2.0 for a, b in zip(p1, p2))
+    return (0.0, 0.0, 0.0)
 
 
 def _edge_z_and_radius(edge):
@@ -1182,114 +1218,91 @@ def _resolve_edges(body_reference="last", edge_reference="outer_edges"):
     if ref in {"all", "all_edges", "outer", "outer_edges"}:
         return edges
 
-    try:
-        (min_x, min_y, min_z), (max_x, max_y, max_z) = _body_bounds(body)
-    except Exception:
-        min_x = min_y = min_z = -999999.0
-        max_x = max_y = max_z = 999999.0
+    endpoints_map = {}
+    for edge in edges:
+        p1, p2 = _get_edge_endpoints(edge)
+        if p1 and p2:
+            endpoints_map[edge] = (p1, p2)
 
-    def get_edge_endpoints(edge):
-        try:
-            mod = _get_uf_modl()
-            if mod and hasattr(mod, "AskEdgeVerts"):
-                pt1, pt2, _ = mod.AskEdgeVerts(edge.Tag)
-                p1 = _point_tuple(pt1)
-                p2 = _point_tuple(pt2)
-                return p1, p2
-        except Exception:
-            pass
-        return None, None
+    selected = []
 
     if ref in {"x_edges", "x_aligned", "x_aligned_edges"}:
-        selected = []
-        for edge in edges:
-            p1, p2 = get_edge_endpoints(edge)
-            if p1 and p2:
-                dx = abs(p2[0] - p1[0])
-                dy = abs(p2[1] - p1[1])
-                dz = abs(p2[2] - p1[2])
-                if dx > 0.001 and dy < 0.001 and dz < 0.001:
+        for edge, (p1, p2) in endpoints_map.items():
+            dx = abs(p2[0] - p1[0])
+            dy = abs(p2[1] - p1[1])
+            dz = abs(p2[2] - p1[2])
+            if dx > 0.001 and dy < 0.1 and dz < 0.1:
+                selected.append(edge)
+    elif ref in {"y_edges", "y_aligned", "y_aligned_edges"}:
+        for edge, (p1, p2) in endpoints_map.items():
+            dx = abs(p2[0] - p1[0])
+            dy = abs(p2[1] - p1[1])
+            dz = abs(p2[2] - p1[2])
+            if dy > 0.001 and dx < 0.1 and dz < 0.1:
+                selected.append(edge)
+    elif ref in {"z_edges", "z_aligned", "z_aligned_edges", "vertical", "vertical_edges"}:
+        for edge, (p1, p2) in endpoints_map.items():
+            dx = abs(p2[0] - p1[0])
+            dy = abs(p2[1] - p1[1])
+            dz = abs(p2[2] - p1[2])
+            length = getattr(edge, "GetLength", lambda: 0.0)()
+            if (dz > 0.001 and dx < 0.1 and dy < 0.1) or (length > 0 and dz > 0.5 * length):
+                selected.append(edge)
+    elif ref in {"top", "top_edges", "max_z", "max_z_edges"}:
+        all_z = [z for p1, p2 in endpoints_map.values() for z in (p1[2], p2[2])]
+        if all_z:
+            max_z = max(all_z)
+            for edge, (p1, p2) in endpoints_map.items():
+                if abs(p1[2] - max_z) < 0.1 and abs(p2[2] - max_z) < 0.1:
                     selected.append(edge)
-        return selected
-
-    if ref in {"y_edges", "y_aligned", "y_aligned_edges"}:
-        selected = []
-        for edge in edges:
-            p1, p2 = get_edge_endpoints(edge)
-            if p1 and p2:
-                dx = abs(p2[0] - p1[0])
-                dy = abs(p2[1] - p1[1])
-                dz = abs(p2[2] - p1[2])
-                if dy > 0.001 and dx < 0.001 and dz < 0.001:
+    elif ref in {"bottom", "bottom_edges", "min_z", "min_z_edges"}:
+        all_z = [z for p1, p2 in endpoints_map.values() for z in (p1[2], p2[2])]
+        if all_z:
+            min_z = min(all_z)
+            for edge, (p1, p2) in endpoints_map.items():
+                if abs(p1[2] - min_z) < 0.1 and abs(p2[2] - min_z) < 0.1:
                     selected.append(edge)
-        return selected
-
-    if ref in {"z_edges", "z_aligned", "z_aligned_edges", "vertical", "vertical_edges"}:
-        selected = []
-        for edge in edges:
-            p1, p2 = get_edge_endpoints(edge)
-            if p1 and p2:
-                dx = abs(p2[0] - p1[0])
-                dy = abs(p2[1] - p1[1])
-                dz = abs(p2[2] - p1[2])
-                if dz > 0.001 and dx < 0.001 and dy < 0.001:
+    elif ref in {"max_x", "max_x_edges"}:
+        all_x = [x for p1, p2 in endpoints_map.values() for x in (p1[0], p2[0])]
+        if all_x:
+            max_x = max(all_x)
+            for edge, (p1, p2) in endpoints_map.items():
+                if abs(p1[0] - max_x) < 0.1 and abs(p2[0] - max_x) < 0.1:
                     selected.append(edge)
-        if not selected and ref in {"vertical", "vertical_edges"}:
-            for edge in edges:
-                p1, p2 = get_edge_endpoints(edge)
-                if p1 and p2 and abs(p2[2] - p1[2]) > 0.001:
+    elif ref in {"min_x", "min_x_edges"}:
+        all_x = [x for p1, p2 in endpoints_map.values() for x in (p1[0], p2[0])]
+        if all_x:
+            min_x = min(all_x)
+            for edge, (p1, p2) in endpoints_map.items():
+                if abs(p1[0] - min_x) < 0.1 and abs(p2[0] - min_x) < 0.1:
                     selected.append(edge)
-        return selected
+    elif ref in {"max_y", "max_y_edges"}:
+        all_y = [y for p1, p2 in endpoints_map.values() for y in (p1[1], p2[1])]
+        if all_y:
+            max_y = max(all_y)
+            for edge, (p1, p2) in endpoints_map.items():
+                if abs(p1[1] - max_y) < 0.1 and abs(p2[1] - max_y) < 0.1:
+                    selected.append(edge)
+    elif ref in {"min_y", "min_y_edges"}:
+        all_y = [y for p1, p2 in endpoints_map.values() for y in (p1[1], p2[1])]
+        if all_y:
+            min_y = min(all_y)
+            for edge, (p1, p2) in endpoints_map.items():
+                if abs(p1[1] - min_y) < 0.1 and abs(p2[1] - min_y) < 0.1:
+                    selected.append(edge)
+    else:
+        raise SelectionError(
+            f"Unrecognized or unsupported edge reference: '{edge_reference}' on body '{_body_name(body)}'. "
+            f"Supported references: 'outer_edges', 'top_edges', 'bottom_edges', 'vertical_edges', 'x_edges', 'y_edges', 'z_edges', 'max_x', 'min_x', 'max_y', 'min_y', or feature-scoped 'feature_name:top'."
+        )
 
-    if ref in {"top", "top_edges", "max_z", "max_z_edges"}:
-        selected = []
-        for edge in edges:
-            p1, p2 = get_edge_endpoints(edge)
-            if p1 and p2 and abs(p1[2] - max_z) < 0.001 and abs(p2[2] - max_z) < 0.001:
-                selected.append(edge)
-        return selected
+    if not selected:
+        raise SelectionError(
+            f"No edges matched '{edge_reference}' on body '{_body_name(body)}'. "
+            f"Specify a body region or use feature-name scoping instead."
+        )
 
-    if ref in {"bottom", "bottom_edges", "min_z", "min_z_edges"}:
-        selected = []
-        for edge in edges:
-            p1, p2 = get_edge_endpoints(edge)
-            if p1 and p2 and abs(p1[2] - min_z) < 0.001 and abs(p2[2] - min_z) < 0.001:
-                selected.append(edge)
-        return selected
-
-    if ref in {"max_x", "max_x_edges"}:
-        selected = []
-        for edge in edges:
-            p1, p2 = get_edge_endpoints(edge)
-            if p1 and p2 and abs(p1[0] - max_x) < 0.001 and abs(p2[0] - max_x) < 0.001:
-                selected.append(edge)
-        return selected
-
-    if ref in {"min_x", "min_x_edges"}:
-        selected = []
-        for edge in edges:
-            p1, p2 = get_edge_endpoints(edge)
-            if p1 and p2 and abs(p1[0] - min_x) < 0.001 and abs(p2[0] - min_x) < 0.001:
-                selected.append(edge)
-        return selected
-
-    if ref in {"max_y", "max_y_edges"}:
-        selected = []
-        for edge in edges:
-            p1, p2 = get_edge_endpoints(edge)
-            if p1 and p2 and abs(p1[1] - max_y) < 0.001 and abs(p2[1] - max_y) < 0.001:
-                selected.append(edge)
-        return selected
-
-    if ref in {"min_y", "min_y_edges"}:
-        selected = []
-        for edge in edges:
-            p1, p2 = get_edge_endpoints(edge)
-            if p1 and p2 and abs(p1[1] - min_y) < 0.001 and abs(p2[1] - min_y) < 0.001:
-                selected.append(edge)
-        return selected
-
-    raise SelectionError(f"Could not resolve edge reference: {edge_reference}")
+    return selected
 
 
 def _direction_vector(direction):
@@ -2534,7 +2547,7 @@ def _current_body_and_feature_ids(feature):
         except Exception:
             pass
     if not bid and _state.get("last_body"):
-        bid = _state.get("object_to_id", {}).get(getattr(_state.get("last_body"), "Tag", None))
+        bid = _state.get("object_to_id", {}).get(getattr(_state.get("last_body"), "Tag", None), None)
     if not bid and _iter_bodies(_ensure_work_part()):
         bid = _register_body(_iter_bodies(_ensure_work_part())[-1])
     return bid or "body_1", fid
@@ -2887,6 +2900,8 @@ def _boolean_operation(operation, target="last", tool="last"):
             builder.Operation = NXOpen.Features.Feature.BooleanType.Unite
         elif operation_name == "subtract":
             builder.Operation = NXOpen.Features.Feature.BooleanType.Subtract
+        elif operation_name == "intersect":
+            builder.Operation = NXOpen.Features.Feature.BooleanType.Intersect
         else:
             raise SelectionError(f"Unsupported boolean operation: {operation}")
 
@@ -2894,24 +2909,37 @@ def _boolean_operation(operation, target="last", tool="last"):
         feature = builder.CommitFeature()
         fid = _register_feature(feature)
 
-        if tool_id and tool_id in _state.get("id_map", {}):
-            _state["id_map"].pop(tool_id, None)
-            _state["bodies"].pop(tool_id, None)
+        if tool_id:
+            _state.get("id_map", {}).pop(tool_id, None)
+            _state.get("bodies", {}).pop(tool_id, None)
+        if tool_tag:
+            _state.get("object_to_id", {}).pop(tool_tag, None)
+        for k, v in list(_state.get("bodies", {}).items()):
+            if v is tool_body or getattr(v, "Tag", None) == tool_tag:
+                _state["bodies"].pop(k, None)
 
-        surviving_bodies = _iter_bodies(work_part)
+        surviving_bodies = [b for b in _iter_bodies(work_part) if _is_real_solid_body(b)]
+        if not surviving_bodies:
+            surviving_bodies = _iter_bodies(work_part)
+
+        surviving = None
         if surviving_bodies:
-            surviving = target_body
             for b in surviving_bodies:
                 if getattr(b, "Tag", None) == target_tag:
                     surviving = b
                     break
-            else:
-                surviving = surviving_bodies[-1]
-            _state.setdefault("id_map", {})[target_id] = surviving
-            _state.setdefault("bodies", {})[target_id] = surviving
-            _state["last_body"] = surviving
-            if getattr(surviving, "Tag", None):
-                _state.setdefault("object_to_id", {})[surviving.Tag] = target_id
+            if surviving is None:
+                surviving = max(surviving_bodies, key=_body_volume_metric)
+
+        if surviving is None:
+            surviving = target_body
+
+        _state.setdefault("id_map", {})[target_id] = surviving
+        _state.setdefault("bodies", {})[target_id] = surviving
+        _state["last_body"] = surviving
+        _state["last_body_id"] = target_id
+        if getattr(surviving, "Tag", None):
+            _state.setdefault("object_to_id", {})[surviving.Tag] = target_id
     except Exception as e:
         target_name = _body_name(target_body)
         tool_name = _body_name(tool_body)
@@ -2944,6 +2972,10 @@ def boolean_subtract(target="last", tool="last"):
     return _boolean_operation("subtract", target, tool)
 
 
+def boolean_intersect(target="last", tool="last"):
+    return _boolean_operation("intersect", target, tool)
+
+
 def add_chamfer(offset, body="last", edges="outer_edges"):
     offset = float(offset)
     if offset <= 0.0:
@@ -2951,6 +2983,8 @@ def add_chamfer(offset, body="last", edges="outer_edges"):
 
     work_part = _ensure_work_part()
     selected_edges = _resolve_edges(body, edges)
+    if not selected_edges:
+        return {"ok": False, "error": "No edges found for chamfer"}
 
     # Resolve and save target body ID BEFORE commit — NX replaces body objects
     # during Chamfer, making the pre-chamfer reference stale.
@@ -2993,11 +3027,15 @@ def add_chamfer(offset, body="last", edges="outer_edges"):
         builder.Destroy()
 
     # Restore target body tracking — NX may have replaced the body object
-    _state["last_body_id"] = pre_bid
-    if pre_bid in _state.get("id_map", {}):
-        _state["last_body"] = _state["id_map"][pre_bid]
-    elif pre_bid in _state.get("bodies", {}):
-        _state["last_body"] = _state["bodies"][pre_bid]
+    feat_bodies = [b for b in (getattr(feature, "GetBodies", lambda: [])() or []) if _is_real_solid_body(b)]
+    if feat_bodies:
+        _rebind_body_id(pre_bid, feat_bodies[0])
+    else:
+        _state["last_body_id"] = pre_bid
+        if pre_bid in _state.get("id_map", {}):
+            _state["last_body"] = _state["id_map"][pre_bid]
+        elif pre_bid in _state.get("bodies", {}):
+            _state["last_body"] = _state["bodies"][pre_bid]
 
     fit_view()
     fid = _state.get("object_to_id", {}).get(getattr(feature, "Tag", None), _state.get("last_feature_id", "feature_1"))
@@ -3019,6 +3057,8 @@ def add_fillet(radius, body="last", edges="outer_edges"):
 
     work_part = _ensure_work_part()
     selected_edges = _resolve_edges(body, edges)
+    if not selected_edges:
+        return {"ok": False, "error": "No edges found for fillet"}
 
     # Resolve and save target body ID BEFORE commit — NX replaces body objects
     # during EdgeBlend, making the pre-fillet reference stale.
@@ -3036,12 +3076,25 @@ def add_fillet(radius, body="last", edges="outer_edges"):
     )
     try:
         collector = work_part.ScCollectors.CreateCollector()
-        rule = work_part.ScRuleFactory.CreateRuleEdgeMultipleSeedTangent(
-            [selected_edges[0]],
-            0.5,
-            True,
-        )
-        _set_collector_rules(collector, [rule])
+        rules = []
+        try:
+            rule = work_part.ScRuleFactory.CreateRuleEdgeMultipleSeedTangent(
+                selected_edges,
+                0.5,
+                True,
+            )
+            rules.append(rule)
+        except Exception:
+            for e in selected_edges:
+                try:
+                    r = work_part.ScRuleFactory.CreateRuleEdgeTangent(e, NXOpen.Edge.Null, False, 0.5, False)
+                    rules.append(r)
+                except Exception:
+                    pass
+        if not rules:
+            return {"ok": False, "error": f"Failed to create edge selection rules for '{edges}'"}
+
+        _set_collector_rules(collector, rules)
 
         builder.Tolerance = 0.01
         builder.AllInstancesOption = False
@@ -3056,15 +3109,32 @@ def add_fillet(radius, body="last", edges="outer_edges"):
         builder.AddChainset(collector, r_name)
         feature = builder.CommitFeature()
         _remember_feature(feature)
+    except Exception as exc:
+        err_text = str(exc)
+        if "Unable to create Blend" in err_text or "Unable to terminate" in err_text:
+            return {
+                "ok": False,
+                "error": (
+                    f"Failed to create blend (radius={radius}mm) on '{edges}': NX rejected the blend geometry ({err_text}). "
+                    f"Possible causes: tangent-continuous union seams where no concave/convex corner exists, "
+                    f"blend radius too large for geometry, or conflicting blend intersections. "
+                    f"Try a smaller radius or specify feature-scoped edges (e.g. 'feature:feature_name')."
+                ),
+            }
+        return {"ok": False, "error": f"Failed to commit fillet: {err_text}"}
     finally:
         builder.Destroy()
 
     # Restore target body tracking — NX may have replaced the body object
-    _state["last_body_id"] = pre_bid
-    if pre_bid in _state.get("id_map", {}):
-        _state["last_body"] = _state["id_map"][pre_bid]
-    elif pre_bid in _state.get("bodies", {}):
-        _state["last_body"] = _state["bodies"][pre_bid]
+    feat_bodies = [b for b in (getattr(feature, "GetBodies", lambda: [])() or []) if _is_real_solid_body(b)]
+    if feat_bodies:
+        _rebind_body_id(pre_bid, feat_bodies[0])
+    else:
+        _state["last_body_id"] = pre_bid
+        if pre_bid in _state.get("id_map", {}):
+            _state["last_body"] = _state["id_map"][pre_bid]
+        elif pre_bid in _state.get("bodies", {}):
+            _state["last_body"] = _state["bodies"][pre_bid]
 
     fit_view()
     fid = _state.get("object_to_id", {}).get(getattr(feature, "Tag", None), _state.get("last_feature_id", "feature_1"))
@@ -3203,13 +3273,23 @@ def revolve(axis="auto", angle_deg=360.0):
         NXOpen.UF.Modl.FeatureSigns.NULLSIGN,
     )
 
+    feature = None
     if number_of_features > 0 and features:
         feature = NXOpen.TaggedObjectManager().GetTaggedObject(features[0])
         _remember_feature(feature)
     _state["last_curves"] = []
 
     fit_view()
-    return {"ok": True, "message": f"Revolved {angle_deg} degrees around {resolved_axis}"}
+    bid, fid = _current_body_and_feature_ids(feature)
+    return {
+        "ok": True,
+        "message": f"Revolved {angle_deg} degrees around {resolved_axis}",
+        "body_id": bid,
+        "feature_id": fid,
+        "consumed": [],
+        "produced": [bid] if bid else [],
+        "modified": [],
+    }
 
 
 def mirror_feature(feature_name="last", plane="XZ"):
@@ -3525,12 +3605,21 @@ def extrude_from_sketch(sketch_name="last", distance=10.0, start=0.0, direction=
 
         feature = builder.CommitFeature()
         _remember_feature(feature)
+        bid, fid = _current_body_and_feature_ids(feature)
     finally:
         builder.Destroy()
 
     _state["last_curves"] = []
     fit_view()
-    return {"ok": True, "message": f"Extruded sketch '{sketch_name}' {distance}mm along {resolved_dir}"}
+    return {
+        "ok": True,
+        "message": f"Extruded sketch '{sketch_name}' {distance}mm along {resolved_dir}",
+        "body_id": bid,
+        "feature_id": fid,
+        "consumed": [],
+        "produced": [bid] if bid else [],
+        "modified": [],
+    }
 
 
 def add_hole_nx(
@@ -5315,29 +5404,7 @@ def ribbon_builder(width=10.0, boundary_edge_x=0.0, boundary_edge_y=0.0, boundar
 
 
 def boolean_combine(operation="intersect", target="last", tool="last"):
-    work_part = _ensure_work_part()
-    target_body = _resolve_body(target)
-    tool_body = _resolve_body(tool)
-    if target_body == tool_body:
-        raise SelectionError("Boolean target and tool resolve to the same body")
-    builder = work_part.Features.CreateBooleanBuilder(NXOpen.Features.BooleanFeature.Null)
-    try:
-        op_name = operation.lower()
-        if op_name == "unite":
-            builder.Operation = NXOpen.Features.Feature.BooleanType.Unite
-        elif op_name == "subtract":
-            builder.Operation = NXOpen.Features.Feature.BooleanType.Subtract
-        elif op_name == "intersect":
-            builder.Operation = NXOpen.Features.Feature.BooleanType.Intersect
-        else:
-            raise SelectionError(f"Unsupported boolean operation: {operation}")
-        _set_boolean_inputs(builder, work_part, target_body, [tool_body])
-        feature = builder.CommitFeature()
-        _remember_feature(feature)
-    finally:
-        builder.Destroy()
-    fit_view()
-    return {"ok": True, "message": f"Boolean {op_name} completed"}
+    return _boolean_operation(operation, target, tool)
 
 
 def trim_sheet(target_body="last", boundary_sketch="last"):
