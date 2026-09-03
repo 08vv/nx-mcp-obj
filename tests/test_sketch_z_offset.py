@@ -156,3 +156,60 @@ def test_create_real_sketch_mock():
         r = nx_bridge.create_real_sketch(plane="XY", z_offset=39.0)
         assert r["ok"] is True, f"create_real_sketch error: {r.get('error')}"
         assert nx_bridge._state["sketch_origin"] == [0.0, 0.0, 39.0]
+
+
+def test_sequential_sketches_z_offset_retention():
+    """Verify sequential create_sketch calls update sketch_origin and draw_rounded_rectangle inherits active Z."""
+    from nx_mcp.bridge import nx_bridge
+    nx_bridge._state.clear()
+
+    part = MagicMock()
+    points_by_sketch = []
+
+    def fake_create_line(p1, p2):
+        points_by_sketch.append(p1)
+        return MagicMock()
+
+    def fake_create_arc(center, xdir, ydir, radius, start_rad, end_rad):
+        points_by_sketch.append(center)
+        return MagicMock()
+
+    part.Curves.CreateLine.side_effect = fake_create_line
+    part.Curves.CreateArc.side_effect = fake_create_arc
+
+    with patch.object(nx_bridge, "_ensure_work_part", return_value=part):
+        # Sketch 1 at Z=0.0
+        nx_bridge.create_sketch(plane="XY", z_offset=0.0)
+        points_by_sketch.clear()
+        nx_bridge.draw_rounded_rectangle(arm_length=40.0, arm_width=16.0, end_radius=8.0)
+        assert len(points_by_sketch) > 0
+        assert all(pt.Z == 0.0 for pt in points_by_sketch)
+
+        # Sketch 2 at Z=39.0
+        nx_bridge.create_sketch(plane="XY", z_offset=39.0)
+        points_by_sketch.clear()
+        nx_bridge.draw_rounded_rectangle(arm_length=40.0, arm_width=16.0, end_radius=8.0)
+        assert len(points_by_sketch) > 0
+        assert all(pt.Z == 39.0 for pt in points_by_sketch)
+
+        # Sketch 3 at Z=55.0
+        nx_bridge.create_sketch(plane="XY", z_offset=55.0)
+        points_by_sketch.clear()
+        nx_bridge.draw_rounded_rectangle(arm_length=30.0, arm_width=10.0, end_radius=5.0)
+        assert len(points_by_sketch) > 0
+        assert all(pt.Z == 55.0 for pt in points_by_sketch)
+
+
+def test_draw_rounded_rectangle_tool_wrapper_omits_z_by_default():
+    """Verify MCP tool wrapper does not inject z=0.0 when z is omitted."""
+    from nx_mcp.tools import sketch
+
+    with patch.object(sketch, "_use_mock_nxopen", return_value=False), \
+         patch("nx_mcp.bridge.runner.call_nx") as mock_call:
+        mock_call.return_value = {"ok": True, "message": "OK"}
+        sketch.draw_rounded_rectangle(arm_length=40.0, arm_width=16.0, end_radius=8.0)
+        mock_call.assert_called_once()
+        cmd, payload = mock_call.call_args[0]
+        assert cmd == "draw_rounded_rectangle"
+        assert "z" not in payload, f"Expected 'z' not in payload, got: {payload}"
+

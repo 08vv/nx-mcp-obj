@@ -139,7 +139,7 @@ def draw_arc(cx: float, cy: float, radius: float, start_angle: float, end_angle:
     "draw_rounded_rectangle",
     "Draw a closed rounded-rectangle (stadium/oblong) profile with 2 semicircular arc ends and 2 straight lines. "
     "arm_length = total tip-to-tip length, arm_width = total width, end_radius = arc radius at each end. "
-    "cx_left = X of left arc center (default 0), cy = Y center (default 0), z = Z plane (default 0). "
+    "cx_left = X of left arc center (default 0), cy = Y center (default 0), z = optional Z override (defaults to active sketch plane's z_offset). "
     "Curves accumulate in the active sketch profile."
 )
 def draw_rounded_rectangle(
@@ -148,26 +148,25 @@ def draw_rounded_rectangle(
     end_radius: float,
     cx_left: float = 0.0,
     cy: float = 0.0,
-    z: float = 0.0,
+    z: float = None,
 ):
     try:
+        payload = {
+            "arm_length": arm_length,
+            "arm_width": arm_width,
+            "end_radius": end_radius,
+            "cx_left": cx_left,
+            "cy": cy,
+        }
+        if z is not None:
+            payload["z"] = float(z)
         if not _use_mock_nxopen():
             return _bridge_result(
-                runner.call_nx(
-                    "draw_rounded_rectangle",
-                    {
-                        "arm_length": arm_length,
-                        "arm_width": arm_width,
-                        "end_radius": end_radius,
-                        "cx_left": cx_left,
-                        "cy": cy,
-                        "z": z,
-                    },
-                )
+                runner.call_nx("draw_rounded_rectangle", payload)
             )
         return ToolResult(
             f"Rounded rectangle: L={arm_length} W={arm_width} R={end_radius} "
-            f"center_left=({cx_left},{cy}) z={z}"
+            f"center_left=({cx_left},{cy}) z={z if z is not None else 0.0}"
         )
     except Exception as e:
         return ToolError(str(e))
