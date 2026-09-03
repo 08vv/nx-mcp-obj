@@ -379,31 +379,39 @@ def _snapshot_body_state(body=None):
     return edge_tags, face_tags
 
 
-def _remember_feature(feature):
+def _rebind_body_id(body_id, fresh_body):
+    """Re-bind a body_id to a fresh body object, updating all state mappings."""
+    tag = getattr(fresh_body, "Tag", None)
+    if tag is not None:
+        _state.setdefault("object_to_id", {})[tag] = body_id
+    _state.setdefault("id_map", {})[body_id] = fresh_body
+    _state.setdefault("bodies", {})[body_id] = fresh_body
+    _state["last_body"] = fresh_body
+    _state["last_body_id"] = body_id
+    try:
+        name = _body_name(fresh_body).lower()
+        _state["bodies"][name] = fresh_body
+    except Exception:
+        pass
+
+
+def _remember_feature(feature, target_body=None, is_creation=False):
     if feature is None:
         return feature
 
     name = _feature_name(feature)
     _state["last_feature"] = feature
 
-    body = None
-    get_bodies = getattr(feature, "GetBodies", None)
-    if callable(get_bodies):
-        try:
-            bodies = get_bodies() or []
-            if bodies:
-                b = bodies[0]
-                if _is_real_solid_body(b):
-                    body = b
-                    if _state.get("last_body") is None:
-                        _register_body(body)
-                    else:
-                        _state["last_body"] = body
-                        b_tag = getattr(body, "Tag", None)
-                        if b_tag and b_tag in _state.get("object_to_id", {}):
-                            _state["last_body_id"] = _state["object_to_id"][b_tag]
-        except Exception:
-            pass
+    body = target_body
+    if body is None:
+        get_bodies = getattr(feature, "GetBodies", None)
+        if callable(get_bodies):
+            try:
+                bodies = [b for b in (get_bodies() or []) if _is_real_solid_body(b)]
+                if bodies:
+                    body = bodies[0]
+            except Exception:
+                pass
 
     if body is None:
         try:
@@ -428,9 +436,9 @@ def _remember_feature(feature):
             elif "Face" in type_name and ent_tag not in delta_face_tags:
                 delta_face_tags.append(ent_tag)
 
-    fid = _register_feature(feature)
+    fid = _register_feature(feature, target_body=target_body, is_creation=is_creation)
     _state["last_feature_id"] = fid
-    _state["features"][fid]["edge_tags"] = delta_edge_tags
+    _state.setdefault("features", {})[fid]["edge_tags"] = delta_edge_tags
     _state["features"][fid]["face_tags"] = delta_face_tags
     _state["features"][name.lower()] = _state["features"][fid]
 
@@ -440,14 +448,15 @@ def _remember_feature(feature):
     return feature
 
 
-def _register_body(body):
+def _register_body(body, set_last=True):
     if body is None:
         return None
     tag = getattr(body, "Tag", None)
     if tag and tag in _state.get("object_to_id", {}):
         bid = _state["object_to_id"][tag]
-        _state["last_body"] = body
-        _state["last_body_id"] = bid
+        if set_last:
+            _state["last_body"] = body
+            _state["last_body_id"] = bid
         return bid
 
     _state["body_counter"] = _state.get("body_counter", 0) + 1
@@ -456,18 +465,19 @@ def _register_body(body):
     _state.setdefault("bodies", {})[body_id] = body
     if tag:
         _state.setdefault("object_to_id", {})[tag] = body_id
-    _state["last_body"] = body
-    _state["last_body_id"] = body_id
+    if set_last:
+        _state["last_body"] = body
+        _state["last_body_id"] = body_id
     name = _body_name(body)
     _state["bodies"][name.lower()] = body
     return body_id
 
 
 def _remember_body(body):
-    return _register_body(body)
+    return _register_body(body, set_last=True)
 
 
-def _register_feature(feature):
+def _register_feature(feature, target_body=None, is_creation=False):
     if feature is None:
         return None
     tag = getattr(feature, "Tag", None)
@@ -493,9 +503,20 @@ def _register_feature(feature):
     try:
         get_bodies = getattr(feature, "GetBodies", None)
         if callable(get_bodies):
-            for b in get_bodies() or []:
-                if _is_real_solid_body(b):
-                    _register_body(b)
+            feat_bodies = [b for b in (get_bodies() or []) if _is_real_solid_body(b)]
+            prev_last_body = _state.get("last_body")
+
+            for b in feat_bodies:
+                _register_body(b, set_last=False)
+
+            if target_body is not None and _is_real_solid_body(target_body):
+                _register_body(target_body, set_last=True)
+            elif prev_last_body is None and feat_bodies:
+                _register_body(feat_bodies[0], set_last=True)
+            elif is_creation and feat_bodies:
+                _register_body(feat_bodies[0], set_last=True)
+            elif prev_last_body is not None and _is_real_solid_body(prev_last_body):
+                _register_body(prev_last_body, set_last=True)
     except Exception:
         pass
 
@@ -856,21 +877,6 @@ def _refresh_body_by_name(body_id, all_bodies):
         except Exception:
             continue
     return None
-
-
-def _rebind_body_id(body_id, fresh_body):
-    """Re-bind a body_id to a fresh body object, updating all state mappings."""
-    tag = getattr(fresh_body, "Tag", None)
-    if tag is not None:
-        _state.setdefault("object_to_id", {})[tag] = body_id
-    _state.setdefault("id_map", {})[body_id] = fresh_body
-    _state.setdefault("bodies", {})[body_id] = fresh_body
-    _state["last_body"] = fresh_body
-    try:
-        name = _body_name(fresh_body).lower()
-        _state["bodies"][name] = fresh_body
-    except Exception:
-        pass
 
 
 def _resolve_body(reference="last"):
@@ -2630,7 +2636,7 @@ def extrude(distance, start=0, direction="auto"):
                 pass
 
         feature = builder.CommitFeature()
-        _remember_feature(feature)
+        _remember_feature(feature, is_creation=True)
     finally:
         builder.Destroy()
 
@@ -2671,7 +2677,7 @@ def create_cuboid(length, width, height, x=0.0, y=0.0, z=0.0):
             NXOpen.Body.Null,
         )
         feature = builder.CommitFeature()
-        _remember_feature(feature)
+        _remember_feature(feature, is_creation=True)
     finally:
         builder.Destroy()
 
@@ -2729,7 +2735,7 @@ def create_cube(size, x=0.0, y=0.0, z=0.0):
             NXOpen.Body.Null,
         )
         feature = builder.CommitFeature()
-        _remember_feature(feature)
+        _remember_feature(feature, is_creation=True)
     finally:
         builder.Destroy()
 
@@ -2764,7 +2770,7 @@ def create_cylinder(radius, height, x=0.0, y=0.0, z=0.0, direction="Z"):
         builder.Axis.Point.SetCoordinates(origin)
         builder.Axis.Direction = nx_direction
         feature = builder.Commit()
-        _remember_feature(feature)
+        _remember_feature(feature, is_creation=True)
     finally:
         builder.Destroy()
 
@@ -3222,6 +3228,10 @@ def add_hole(x, y, z, diameter, depth, target="last", direction="auto", placemen
         return {"ok": False, "error": "Hole diameter and depth must be positive"}
 
     target_body = _resolve_body(target)
+    pre_bid = _state.get("object_to_id", {}).get(
+        getattr(target_body, "Tag", None),
+        _state.get("last_body_id", "body_1"),
+    )
     work_part = _ensure_work_part()
     prefix = _next_instance_prefix("HOLE")
     d_name = _create_input_expression(work_part, f"{prefix}_D", diameter)
@@ -3245,6 +3255,13 @@ def add_hole(x, y, z, diameter, depth, target="last", direction="auto", placemen
                 builder.Position = point
             if hasattr(builder, "Direction"):
                 builder.Direction = _create_direction(work_part, point, _direction_vector(resolved_dir))
+            for attr in ("Target", "TargetBody", "BooleanOperation"):
+                if hasattr(builder, attr):
+                    try:
+                        setattr(builder, attr, target_body)
+                        break
+                    except Exception:
+                        pass
             feature = builder.CommitFeature()
         except Exception:
             feature = None
@@ -3253,17 +3270,34 @@ def add_hole(x, y, z, diameter, depth, target="last", direction="auto", placemen
             builder.Destroy()
             return _subtract_cylinder_hole_parametric(target_body, x, y, z, d_name, depth_name, resolved_dir)
 
-        _remember_feature(feature)
+        _remember_feature(feature, target_body=target_body, is_creation=False)
     finally:
         try:
             builder.Destroy()
         except Exception:
             pass
 
+    # Restore/rebind target body tracking (RC3/RC4 fix)
+    feat_bodies = [b for b in (getattr(feature, "GetBodies", lambda: [])() or []) if _is_real_solid_body(b)]
+    if feat_bodies:
+        _rebind_body_id(pre_bid, feat_bodies[0])
+    else:
+        _state["last_body_id"] = pre_bid
+        if pre_bid in _state.get("id_map", {}):
+            _state["last_body"] = _state["id_map"][pre_bid]
+        elif pre_bid in _state.get("bodies", {}):
+            _state["last_body"] = _state["bodies"][pre_bid]
+
     fit_view()
+    fid = _state.get("object_to_id", {}).get(getattr(feature, "Tag", None), _state.get("last_feature_id", "feature_1"))
     return {
         "ok": True,
         "message": f"Hole D={diameter} depth={depth} at ({float(x)},{float(y)},{float(z)}) on {placement_face}",
+        "feature_id": fid,
+        "body_id": pre_bid,
+        "consumed": [],
+        "modified": [pre_bid] if pre_bid else [],
+        "produced": [],
     }
 
 
@@ -3295,7 +3329,7 @@ def revolve(axis="auto", angle_deg=360.0):
     feature = None
     if number_of_features > 0 and features:
         feature = NXOpen.TaggedObjectManager().GetTaggedObject(features[0])
-        _remember_feature(feature)
+        _remember_feature(feature, is_creation=True)
     _state["last_curves"] = []
 
     fit_view()
@@ -3314,6 +3348,8 @@ def revolve(axis="auto", angle_deg=360.0):
 def mirror_feature(feature_name="last", plane="XZ"):
     work_part = _ensure_work_part()
     source_feature = _resolve_feature(feature_name)
+    target_body = _state.get("last_body")
+    target_bid = _state.get("last_body_id")
     datum_builder = work_part.Features.CreateDatumPlaneBuilder(
         NXOpen.Features.Feature.Null
     )
@@ -3348,12 +3384,30 @@ def mirror_feature(feature_name="last", plane="XZ"):
         else:
             raise SelectionError("Mirror builder has no supported mirror plane property")
         feature = builder.CommitFeature()
-        _remember_feature(feature)
+        _remember_feature(feature, target_body=target_body, is_creation=False)
     finally:
         builder.Destroy()
 
+    if target_bid:
+        feat_bodies = [b for b in (getattr(feature, "GetBodies", lambda: [])() or []) if _is_real_solid_body(b)]
+        if feat_bodies:
+            _rebind_body_id(target_bid, feat_bodies[0])
+        else:
+            _state["last_body_id"] = target_bid
+            if target_bid in _state.get("id_map", {}):
+                _state["last_body"] = _state["id_map"][target_bid]
+
     fit_view()
-    return {"ok": True, "message": f"Mirrored '{_feature_name(source_feature)}' about {plane}"}
+    fid = _state.get("object_to_id", {}).get(getattr(feature, "Tag", None), _state.get("last_feature_id", "feature_1"))
+    return {
+        "ok": True,
+        "message": f"Mirrored '{_feature_name(source_feature)}' about {plane}",
+        "feature_id": fid,
+        "body_id": target_bid,
+        "consumed": [],
+        "modified": [target_bid] if target_bid else [],
+        "produced": [],
+    }
 
 
 def pattern_feature(feature_name="last", direction="X", count=3, pitch=10.0):
@@ -3612,7 +3666,7 @@ def extrude_from_sketch(sketch_name="last", distance=10.0, start=0.0, direction=
                 pass
 
         feature = builder.CommitFeature()
-        _remember_feature(feature)
+        _remember_feature(feature, is_creation=True)
         bid, fid = _current_body_and_feature_ids(feature)
     finally:
         builder.Destroy()
@@ -3750,20 +3804,37 @@ def add_hole_nx(
                 target_body, x, y, z, d_name, depth_name, resolved_dir
             )
 
-        _remember_feature(feature)
+        _remember_feature(feature, target_body=target_body, is_creation=False)
     finally:
         try:
             builder.Destroy()
         except Exception:
             pass
 
+    # Restore/rebind target body tracking
+    feat_bodies = [b for b in (getattr(feature, "GetBodies", lambda: [])() or []) if _is_real_solid_body(b)]
+    if feat_bodies:
+        _rebind_body_id(pre_bid, feat_bodies[0])
+    else:
+        _state["last_body_id"] = pre_bid
+        if pre_bid in _state.get("id_map", {}):
+            _state["last_body"] = _state["id_map"][pre_bid]
+        elif pre_bid in _state.get("bodies", {}):
+            _state["last_body"] = _state["bodies"][pre_bid]
+
     fit_view()
+    fid = _state.get("object_to_id", {}).get(getattr(feature, "Tag", None), _state.get("last_feature_id", "feature_1"))
     return {
         "ok": True,
         "message": (
             f"Hole D={diameter} depth={depth} at "
             f"({float(x):.3f},{float(y):.3f},{float(z):.3f})"
         ),
+        "feature_id": fid,
+        "body_id": pre_bid,
+        "consumed": [],
+        "modified": [pre_bid] if pre_bid else [],
+        "produced": [],
     }
 
 
