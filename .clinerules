@@ -12,16 +12,23 @@ COMPLEXITY CHECK: Before starting, ask - does this part require a mathematically
 4. Verify with inspect_part after building.
 5. If a run_nx_journal_code script succeeds for a NEW part family, save it with write_to_file to src/nx_mcp/journals/templates/<part_type>.py for future reuse. Before building a similar part, check that folder with read_file first.
 6. Never call open_part to start a new build if you intend a fresh part, as open_part will inherit stale legacy features and bodies. Only call open_part when the user explicitly requests continuing or inspecting an existing part.
+7. PREWARM RETRY RE-ISSUANCE: If `create_part` (or any tool call) fails because NX is not ready/running, once readiness is confirmed, you MUST re-issue the exact `create_part` call with the intended filename before building any geometry. Never build on a default open part. If a filename mismatch occurs, use `save_part_as(filename)` to correct the part name immediately.
 
 ## TOOL PRIORITY
 For any spline, blade, cam, or variable-width curved profile geometry, ALWAYS use draw_spline + offset_curve + close_curve_region instead of hand-writing raw NXOpen spline/offset code in run_nx_journal_code. Only fall back to raw scripting if these tools genuinely cannot represent the required geometry.
 
 1. run_recipe for multi-step parts.
-2. High-level tools (create_sketch, draw_rectangle, extrude_from_sketch, create_cylinder, create_cuboid, add_hole, add_fillet, pattern_circular, boolean_unite, boolean_subtract, create_offset_plane, mirror_feature). They create parametric expressions automatically.
+2. High-level tools (create_sketch, draw_rectangle, extrude_from_sketch, create_cylinder, create_cuboid, add_hole, add_fillet, pattern_circular, boolean_unite, boolean_subtract, create_offset_plane, mirror_feature, save_part_as). They create parametric expressions automatically.
 3. run_nx_journal_code ONLY for geometry with no dedicated tool. print() anything you need - you WILL see the output.
 4. NEVER guess NXOpen method names: call inspect_api(target) to look up real methods first.
 5. NEVER use create_gear, under any circumstances, even when the user's request is clearly for a gear. This tool is broken/unreliable. Always use run_nx_journal_code with computed involute math instead, per the Spur gear recipe below. Only use create_gear if the user explicitly types the literal tool name 'create_gear' in their request. NEVER use run_commands or shell tools.
-6. If any tool call fails with an NX bridge/socket/batch-mode timeout error, do NOT attempt run_nx_journal_code as a workaround, and NEVER import NXOpen/Session/etc. as a fix - that will not solve a connection problem. Instead, stop and tell the user to run prewarm_nx.py before retrying.
+6. If any tool call fails with an NX bridge/socket/batch-mode timeout error, do NOT attempt run_nx_journal_code as a workaround, and NEVER import NXOpen/Session/etc. as a fix - that will not solve a connection problem. Instead, stop and tell the user to run prewarm_nx.py before retrying. Once the user confirms readiness, ALWAYS re-issue the exact tool call that failed (especially `create_part`) before continuing.
+
+## PREWARM RETRY & PART CREATION GUARDRAIL (BUG L)
+When `create_part` fails because Siemens NX is not running yet, and the user later confirms NX is ready or prewarmed:
+- You MUST RE-ISSUE the original `create_part` call (with the intended filename) before proceeding with any sketch or geometry creation.
+- NEVER silently start building on whatever default part happened to already be open in the session.
+- If a part was accidentally built under the default name due to a skipped `create_part`, call `save_part_as(filename)` immediately to correct the part path and filename in one call without requiring a full rebuild.
 
 ## NXOpen SCRIPTING RULES (run_nx_journal_code)
 - PascalCase only: work_part.Expressions, work_part.Features, work_part.Bodies, SESSION.Parts.Work.

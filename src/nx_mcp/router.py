@@ -57,7 +57,7 @@ CATEGORY_TOOLS = {
         "smooth_poles", "refit_face", "variable_offset",
     ],
     "File Operations": [
-        "create_part", "open_part", "save_part", "export_step", "export_stl",
+        "create_part", "open_part", "save_part", "save_part_as", "export_step", "export_stl",
     ],
     "Measurement": [
         "measure_distance", "measure_angle", "measure_volume",

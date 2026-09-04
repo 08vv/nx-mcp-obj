@@ -88,6 +88,35 @@ def save_part():
         return ToolError(str(e))
 
 
+@mcp_tool("save_part_as", "Save the current work part under a new filename/path")
+def save_part_as(filename: str, overwrite: bool = True):
+    """
+    Saves the active work part in the NX session under a new filename or file path.
+
+    :param filename: The new name or path for the part file (e.g. 'new_model.prt').
+    :param overwrite: If True (default), overwrite any existing file with that name.
+    """
+    try:
+        if _use_mock_nxopen():
+            part = NXSession.work_part()
+            if hasattr(part, "SaveAs"):
+                part.SaveAs(filename)
+            elif hasattr(part, "Save"):
+                part.Save()
+            filepath = os.path.abspath(filename if os.path.splitext(filename)[1] else f"{filename}.prt")
+            runner._update_watcher_files(filepath)
+            cmd_path = _cmd_path()
+            return ToolResult(
+                f"Saved part as: {filepath}\n\nTo manually open in NX, run:\n{cmd_path}"
+            )
+        return _bridge_result(
+            runner.call_nx("save_part_as", {"filename": filename, "overwrite": overwrite}),
+            auto_open=True,
+        )
+    except Exception as e:
+        return ToolError(str(e))
+
+
 @mcp_tool("export_step", "Export current part as STEP file")
 def export_step(output_path: str):
     """

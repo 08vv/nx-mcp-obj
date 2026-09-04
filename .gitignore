@@ -25,3 +25,12 @@ probe_*.json
 debug_*.json
 debug_*.txt
 scratch_*.py
+scratch/
+
+# Temporary test output
+pytest_temp/
+
+# One-off verify / benchmark scripts
+verify_*.py
+benchmark_*.py
+reconcile_*.py

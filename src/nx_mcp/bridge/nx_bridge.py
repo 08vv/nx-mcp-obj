@@ -1629,6 +1629,43 @@ def save_part():
     return {"ok": True, "message": "Saved", "filepath": filepath}
 
 
+def save_part_as(filename=None, filepath=None, overwrite=True):
+    import os
+    target_path = filename or filepath
+    if not target_path:
+        return {"ok": False, "error": "Missing required filename for save_part_as"}
+
+    work_part = SESSION.Parts.Work
+    if work_part is None:
+        return {"ok": False, "error": "No work part is open"}
+
+    target_abs = os.path.abspath(target_path)
+    if not os.path.splitext(target_abs)[1]:
+        target_abs += ".prt"
+
+    if os.path.exists(target_abs):
+        if overwrite:
+            try:
+                os.remove(target_abs)
+            except Exception:
+                pass
+        else:
+            return {"ok": False, "error": f"File '{target_abs}' already exists and overwrite is False"}
+
+    try:
+        work_part.SaveAs(target_abs)
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to save part as '{target_abs}': {e}"}
+
+    actual_path = os.path.abspath(work_part.FullPath if work_part else target_abs)
+    _update_result_files(actual_path)
+    return {
+        "ok": True,
+        "message": f"Saved part as: {actual_path}",
+        "filepath": actual_path,
+    }
+
+
 def create_sketch(plane="XY", z_offset=0.0, origin_x=0.0, origin_y=0.0, rotate_z_deg=0.0):
     global ACTIVE_SKETCH_PLANE
 

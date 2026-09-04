@@ -24,6 +24,14 @@ def test_save_part():
     assert isinstance(r, ToolResult)
     assert "open_current_nx_result.cmd" in r.message
 
+
+def test_save_part_as():
+    file_ops.create_part("test_orig.prt")
+    r = file_ops.save_part_as("test_renamed.prt")
+    assert isinstance(r, ToolResult)
+    assert "test_renamed.prt" in r.message
+    assert "open_current_nx_result.cmd" in r.message
+
 def test_export_step():
     r = file_ops.export_step("out.stp")
     assert isinstance(r, ToolResult) and "out.stp" in r.message
