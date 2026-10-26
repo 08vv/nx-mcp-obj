@@ -2,7 +2,7 @@
 
 ## Overview
 
-The tool registry (`src/nx_mcp/tools/registry.py`) provides centralized registration, introspection, and JSON Schema generation for all 141 MCP tools in NX-MCP.
+The tool registry (`src/nx_mcp/tools/registry.py`) provides centralized registration, introspection, and JSON Schema generation for all **154 MCP tools** in NX-MCP.
 
 ---
 
@@ -97,10 +97,11 @@ from nx_mcp.tools import (
     utility,
     discovery,
     recipe,
+    state_tools,
 )
 ```
 
-Importing each module triggers the `@mcp_tool` decorator evaluations, populating the `ToolRegistry` catalog with all 141 tools.
+Importing each module triggers the `@mcp_tool` decorator evaluations, populating the `ToolRegistry` catalog with all 154 tools.
 
 ---
 
@@ -118,14 +119,18 @@ Importing each module triggers the `@mcp_tool` decorator evaluations, populating
            return ToolResult("Mock execution")
        return _bridge_result(runner.call_nx("my_new_tool", {"param1": param1, "mode": mode}))
    ```
+
 2. **Implement the In-NX Handler in `src/nx_mcp/bridge/nx_bridge.py`**:
    - Define `def my_new_tool(param1, mode="fast"):`
    - Acquire work part via `_ensure_work_part()`.
-   - Create expressions, execute the NXOpen feature builder, and call `_remember_feature()`.
+   - Create expressions via `_create_input_expression()`.
+   - Execute the NXOpen feature builder and call `_remember_feature()`.
    - Return `{"ok": True, "message": "...", "filepath": str(work_part.FullPath)}`.
+
 3. **Register Category & Keywords in `src/nx_mcp/router.py`**:
    - Add `"my_new_tool"` to the appropriate list in `CATEGORY_TOOLS`.
    - Add relevant keywords to `CATEGORY_KEYWORDS`.
+
 4. **Add Pytest Unit Test in `tests/`**:
    - Verify tool schema, argument validation, and mock execution.
 
@@ -135,4 +140,5 @@ Importing each module triggers the `@mcp_tool` decorator evaluations, populating
 
 - [tool_routing.md](tool_routing.md) — Dynamic filtering and category routing.
 - [architecture.md](architecture.md) — System architecture overview.
+- [cad_spec_system.md](cad_spec_system.md) — Declarative CAD Spec engine.
 - [workflow.md](workflow.md) — Request and execution workflow.

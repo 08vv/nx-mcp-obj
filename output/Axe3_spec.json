@@ -1,0 +1,620 @@
+{
+  "source_mesh": "Axe3.obj",
+  "global_shape_family": "AXISYMMETRIC_REVOLVE",
+  "primary_axis": "Y",
+  "axis_idx": 1,
+  "is_round": true,
+  "circularity_score": 0.9871,
+  "mean_aspect_ratio": 1.0091,
+  "round_station_fraction": 1.0,
+  "total_height_mm": 199.4739,
+  "expressions": [
+    [
+      "BODY_MAX_DIA",
+      "77.043"
+    ],
+    [
+      "BASE_BLEND_R",
+      "3.500"
+    ],
+    [
+      "ZONE1_START",
+      "-100.012"
+    ],
+    [
+      "ZONE1_HEIGHT",
+      "105.429"
+    ],
+    [
+      "ZONE1_BASE_DIA",
+      "BODY_MAX_DIA * 0.9869"
+    ],
+    [
+      "ZONE1_TOP_DIA",
+      "BODY_MAX_DIA * 0.9962"
+    ],
+    [
+      "ZONE1_BASE_R",
+      "ZONE1_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE1_TOP_R",
+      "ZONE1_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE2_START",
+      "ZONE1_START + ZONE1_HEIGHT"
+    ],
+    [
+      "ZONE2_HEIGHT",
+      "9.404"
+    ],
+    [
+      "ZONE2_BASE_DIA",
+      "ZONE1_TOP_DIA"
+    ],
+    [
+      "ZONE2_TOP_DIA",
+      "BODY_MAX_DIA * 0.9297"
+    ],
+    [
+      "ZONE2_BASE_R",
+      "ZONE2_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE2_TOP_R",
+      "ZONE2_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE3_START",
+      "ZONE2_START + ZONE2_HEIGHT"
+    ],
+    [
+      "ZONE3_HEIGHT",
+      "14.353"
+    ],
+    [
+      "ZONE3_BASE_DIA",
+      "ZONE2_TOP_DIA"
+    ],
+    [
+      "ZONE3_TOP_DIA",
+      "BODY_MAX_DIA * 0.9374"
+    ],
+    [
+      "ZONE3_BASE_R",
+      "ZONE3_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE3_TOP_R",
+      "ZONE3_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE4_START",
+      "ZONE3_START + ZONE3_HEIGHT"
+    ],
+    [
+      "ZONE4_HEIGHT",
+      "2.970"
+    ],
+    [
+      "ZONE4_BASE_DIA",
+      "ZONE3_TOP_DIA"
+    ],
+    [
+      "ZONE4_TOP_DIA",
+      "BODY_MAX_DIA"
+    ],
+    [
+      "ZONE4_BASE_R",
+      "ZONE4_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE4_TOP_R",
+      "ZONE4_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE4_MID_DIA",
+      "BODY_MAX_DIA * 0.9877"
+    ],
+    [
+      "ZONE4_MID_R",
+      "ZONE4_MID_DIA / 2.0"
+    ],
+    [
+      "ZONE5_START",
+      "ZONE4_START + ZONE4_HEIGHT"
+    ],
+    [
+      "ZONE5_HEIGHT",
+      "63.352"
+    ],
+    [
+      "ZONE5_BASE_DIA",
+      "ZONE4_TOP_DIA"
+    ],
+    [
+      "ZONE5_TOP_DIA",
+      "BODY_MAX_DIA * 0.9434"
+    ],
+    [
+      "ZONE5_BASE_R",
+      "ZONE5_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE5_TOP_R",
+      "ZONE5_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE6_START",
+      "ZONE5_START + ZONE5_HEIGHT"
+    ],
+    [
+      "ZONE6_HEIGHT",
+      "3.967"
+    ],
+    [
+      "ZONE6_BASE_DIA",
+      "ZONE5_TOP_DIA"
+    ],
+    [
+      "ZONE6_TOP_DIA",
+      "BODY_MAX_DIA * 0.8414"
+    ],
+    [
+      "ZONE6_BASE_R",
+      "ZONE6_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE6_TOP_R",
+      "ZONE6_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE6_MID_DIA",
+      "BODY_MAX_DIA * 0.9145"
+    ],
+    [
+      "ZONE6_MID_R",
+      "ZONE6_MID_DIA / 2.0"
+    ],
+    [
+      "RIB_COUNT",
+      "40"
+    ],
+    [
+      "RIB_HEIGHT",
+      "39.895"
+    ],
+    [
+      "RIB_DEPTH",
+      "0.566"
+    ],
+    [
+      "RIB_CUTTER_DIA",
+      "1.773"
+    ],
+    [
+      "RIB_X_START",
+      "37.714 + RIB_CUTTER_DIA / 2.0 - RIB_DEPTH"
+    ],
+    [
+      "RIB_Y_START",
+      "35.630"
+    ]
+  ],
+  "zones": [
+    {
+      "zone_idx": 1,
+      "name": "CANISTER_BODY",
+      "role": "BODY",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE1_START"
+        },
+        {
+          "x": "ZONE1_BASE_R",
+          "y": "ZONE1_START"
+        },
+        {
+          "x": "ZONE1_TOP_R",
+          "y": "ZONE1_START + ZONE1_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE1_START + ZONE1_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE1_BASE_R",
+      "r_end_exp": "ZONE1_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE1_START",
+      "height_exp": "ZONE1_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE1_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE1_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE1_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": false,
+      "blend_radius_exp": "BASE_BLEND_R"
+    },
+    {
+      "zone_idx": 2,
+      "name": "WAIST_TAPER",
+      "role": "TRANSITION",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE2_START"
+        },
+        {
+          "x": "ZONE2_BASE_R",
+          "y": "ZONE2_START"
+        },
+        {
+          "x": "ZONE2_TOP_R",
+          "y": "ZONE2_START + ZONE2_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE2_START + ZONE2_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE2_BASE_R",
+      "r_end_exp": "ZONE2_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE2_START",
+      "height_exp": "ZONE2_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE2_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE2_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE2_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 3,
+      "name": "NECK_WAIST",
+      "role": "NECK",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE3_START"
+        },
+        {
+          "x": "ZONE3_BASE_R",
+          "y": "ZONE3_START"
+        },
+        {
+          "x": "ZONE3_TOP_R",
+          "y": "ZONE3_START + ZONE3_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE3_START + ZONE3_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE3_BASE_R",
+      "r_end_exp": "ZONE3_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE3_START",
+      "height_exp": "ZONE3_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE3_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE3_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE3_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 4,
+      "name": "SHOULDER",
+      "role": "SHOULDER",
+      "segment_type": "ARC",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE4_START"
+        },
+        {
+          "x": "ZONE4_BASE_R",
+          "y": "ZONE4_START"
+        },
+        {
+          "x": "ZONE4_TOP_R",
+          "y": "ZONE4_START + ZONE4_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE4_START + ZONE4_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE4_BASE_R",
+      "r_end_exp": "ZONE4_TOP_R",
+      "r_mid_exp": "ZONE4_MID_R",
+      "z_start_exp": "ZONE4_START",
+      "height_exp": "ZONE4_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE4_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE4_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE4_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 5,
+      "name": "CAP",
+      "role": "CAP",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE5_START"
+        },
+        {
+          "x": "ZONE5_BASE_R",
+          "y": "ZONE5_START"
+        },
+        {
+          "x": "ZONE5_TOP_R",
+          "y": "ZONE5_START + ZONE5_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE5_START + ZONE5_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE5_BASE_R",
+      "r_end_exp": "ZONE5_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE5_START",
+      "height_exp": "ZONE5_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE5_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE5_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE5_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 6,
+      "name": "NOZZLE_DOME",
+      "role": "DOME",
+      "segment_type": "ARC",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE6_START"
+        },
+        {
+          "x": "ZONE6_BASE_R",
+          "y": "ZONE6_START"
+        },
+        {
+          "x": "ZONE6_TOP_R",
+          "y": "ZONE6_START + ZONE6_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE6_START + ZONE6_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE6_BASE_R",
+      "r_end_exp": "ZONE6_TOP_R",
+      "r_mid_exp": "ZONE6_MID_R",
+      "z_start_exp": "ZONE6_START",
+      "height_exp": "ZONE6_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE6_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE6_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE6_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    }
+  ],
+  "metadata": {
+    "product_type": "aerosol_deodorant_can",
+    "image_file": "img/Axe3.jpg",
+    "visual_observations": [
+      "Slender cylindrical aerosol can body.",
+      "Narrower recessed neck waist section below cap shoulder.",
+      "Cap features 40 vertical fluted grip ribs wrapping around the lower cap perimeter.",
+      "Beveled top crown with applicator nozzle dome."
+    ],
+    "corrections_applied": [],
+    "directives": {
+      "split_points": [],
+      "groove": null,
+      "ribs": {
+        "enabled": true,
+        "target_part": "CAP",
+        "count": 40,
+        "position_ratio": 0.68,
+        "height_ratio": 0.2,
+        "depth_ratio": 0.015,
+        "cutter_dia_ratio": 0.047
+      },
+      "edge_style": {
+        "base": "fillet",
+        "crown": "fillet"
+      }
+    },
+    "zone_labels": [
+      {
+        "zone_idx": 1,
+        "role": "BODY",
+        "name": "CANISTER_BODY",
+        "suggested_group": "BODY_ASSEMBLY",
+        "notes": "Main lower cylindrical aerosol canister body"
+      },
+      {
+        "zone_idx": 2,
+        "role": "TRANSITION",
+        "name": "WAIST_TAPER",
+        "suggested_group": "BODY_ASSEMBLY",
+        "notes": "Inward neck taper transition"
+      },
+      {
+        "zone_idx": 3,
+        "role": "NECK",
+        "name": "NECK_WAIST",
+        "suggested_group": "BODY_ASSEMBLY",
+        "notes": "Recessed neck waist section"
+      },
+      {
+        "zone_idx": 4,
+        "role": "SHOULDER",
+        "name": "SHOULDER",
+        "suggested_group": "BODY_ASSEMBLY",
+        "notes": "Shoulder transition step expanding to cap diameter"
+      },
+      {
+        "zone_idx": 5,
+        "role": "CAP",
+        "name": "CAP",
+        "suggested_group": "CAP_ASSEMBLY",
+        "notes": "Main cylindrical cap body with 40 fluted grip ribs"
+      },
+      {
+        "zone_idx": 6,
+        "role": "DOME",
+        "name": "NOZZLE_DOME",
+        "suggested_group": "CAP_ASSEMBLY",
+        "notes": "Top beveled nozzle dome crown"
+      }
+    ],
+    "suggested_groupings": {},
+    "notes": ""
+  },
+  "ribs": {
+    "enabled": true,
+    "target": "CAP",
+    "target_zone": "CAP",
+    "count": 40,
+    "y_start": 35.63,
+    "height": 39.895,
+    "depth": 0.566,
+    "cutter_dia": 1.773,
+    "target_r": 37.714
+  },
+  "edge_style": {
+    "base": "fillet",
+    "crown": "fillet"
+  }
+}

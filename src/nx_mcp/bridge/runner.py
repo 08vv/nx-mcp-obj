@@ -82,6 +82,12 @@ def _bridge_script_path():
 def verify_nx_environment():
     base_dir = os.environ.get("UGII_BASE_DIR")
     if not base_dir:
+        for candidate in [r"C:\Program Files\Siemens\NX2206", r"C:\Program Files\Siemens\NX"]:
+            if os.path.exists(candidate):
+                base_dir = candidate
+                os.environ["UGII_BASE_DIR"] = candidate
+                break
+    if not base_dir:
         raise RuntimeError(
             "Environment variable UGII_BASE_DIR is not set. Please set it to the "
             "Siemens NX installation directory, such as C:\\Program Files\\Siemens\\NX2206."
@@ -122,7 +128,87 @@ def verify_nx_environment():
             f"Missing required Siemens NX executables under {base_dir}: {', '.join(missing)}"
         )
 
+    # Normalize environment
+    if not os.environ.get("UGII_ROOT_DIR") and ugraf_path:
+        os.environ["UGII_ROOT_DIR"] = str(ugraf_path.parent)
+
+    # Check license server resolution fallback
+    license_server = os.environ.get("SPLM_LICENSE_SERVER", "")
+    if "@SunFibo19" in license_server:
+        try:
+            socket.gethostbyname("SunFibo19")
+        except socket.gaierror:
+            candidates = ["192.168.1.3", "192.168.1.36", "192.168.1.19"]
+            resolved_ip = None
+            for candidate_ip in candidates:
+                try:
+                    ts = socket.socket()
+                    ts.settimeout(0.5)
+                    ts.connect((candidate_ip, 28000))
+                    ts.close()
+                    resolved_ip = candidate_ip
+                    break
+                except Exception:
+                    pass
+            if not resolved_ip:
+                # Fast subnet scan on port 28000
+                for i in range(1, 255):
+                    cip = f"192.168.1.{i}"
+                    try:
+                        ts = socket.socket()
+                        ts.settimeout(0.05)
+                        if ts.connect_ex((cip, 28000)) == 0:
+                            ts.close()
+                            resolved_ip = cip
+                            break
+                        ts.close()
+                    except Exception:
+                        pass
+            if resolved_ip:
+                os.environ["SPLM_LICENSE_SERVER"] = license_server.replace("SunFibo19", resolved_ip)
+                sys.stderr.write(
+                    f"[INFO] Resolved SunFibo19 to {resolved_ip} for SPLM_LICENSE_SERVER.\n"
+                )
+
+    nxbin_dir = str(base_path / "NXBIN")
+    ugii_dir = str(base_path / "UGII")
+    current_path = os.environ.get("PATH", "")
+    path_entries = current_path.split(os.pathsep)
+    prepend = []
+    if nxbin_dir not in path_entries and (base_path / "NXBIN").exists():
+        prepend.append(nxbin_dir)
+    if ugii_dir not in path_entries and (base_path / "UGII").exists():
+        prepend.append(ugii_dir)
+    if prepend:
+        os.environ["PATH"] = os.pathsep.join(prepend + [current_path])
+
     return run_journal_path, ugraf_path, ugs_router_path
+
+
+def cleanup_stale_nx():
+    """Remove stale NX processes and launch state when no bridge socket responds."""
+    if sys.platform == "win32":
+        for img in ("run_journal.exe", "ugraf.exe"):
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", img, "/T"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+            except Exception:
+                pass
+    if CONFIG_PATH.exists():
+        try:
+            CONFIG_PATH.unlink(missing_ok=True)
+        except Exception:
+            pass
+    if LOCK_PATH.exists():
+        try:
+            LOCK_PATH.unlink(missing_ok=True)
+        except Exception:
+            pass
+    time.sleep(1)
 
 
 def _is_pid_alive(pid: int) -> bool:
@@ -177,9 +263,14 @@ def _acquire_launch_lock(timeout=60) -> bool:
         except FileExistsError:
             try:
                 if LAUNCH_LOCK_PATH.exists():
+                    pid_str = LAUNCH_LOCK_PATH.read_text(encoding="utf-8").strip()
+                    if pid_str.isdigit() and not _is_pid_alive(int(pid_str)):
+                        LAUNCH_LOCK_PATH.unlink(missing_ok=True)
+                        continue
                     mtime = LAUNCH_LOCK_PATH.stat().st_mtime
                     if time.time() - mtime > 120:
                         LAUNCH_LOCK_PATH.unlink(missing_ok=True)
+                        continue
             except Exception:
                 pass
             time.sleep(0.2)
@@ -206,13 +297,62 @@ def try_connect_socket(port=LIVE_PORT):
         return None
 
 
-def _wait_for_socket(port=LIVE_PORT, timeout=12) -> bool:
+def _check_recent_syslog_error(start_time: float) -> str | None:
+    """Inspect recent Siemens NX syslog files for fatal startup or licensing exceptions."""
+    try:
+        temp_dir = Path(os.environ.get("TEMP", r"C:\Users\HP\AppData\Local\Temp"))
+        if not temp_dir.exists():
+            return None
+        recent_syslogs = [
+            p for p in temp_dir.glob("*.syslog")
+            if p.stat().st_mtime >= (start_time - 5.0)
+        ]
+        if not recent_syslogs:
+            return None
+        recent_syslogs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        keywords = [
+            ("Licensed number of users already reached", "Siemens NX floating license seats are exhausted ('Licensed number of users already reached'). Another user or workstation on the network is holding the license seat."),
+            ("License Server machine is down or not responding", "Siemens NX cannot reach license server machine. Verify SPLM_LICENSE_SERVER."),
+            ("There are no licenses available", "No Siemens NX licenses are available on the license server."),
+        ]
+        for syslog_path in recent_syslogs[:2]:
+            try:
+                with open(syslog_path, encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                for pattern, user_msg in keywords:
+                    if pattern in content:
+                        return user_msg
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return None
+
+
+def _wait_for_socket(port=LIVE_PORT, timeout=12, proc=None) -> bool:
     start_time = time.time()
+    ticks = 0
     while time.time() - start_time < timeout:
         s = try_connect_socket(port)
         if s:
             s.close()
             return True
+        if proc is not None and proc.poll() is not None:
+            sys.stderr.write(
+                f"[ERROR] NX process exited prematurely (exit code {proc.returncode}).\n"
+            )
+            return False
+        ticks += 1
+        if ticks % 6 == 0:
+            syslog_err = _check_recent_syslog_error(start_time)
+            if syslog_err:
+                sys.stderr.write(f"[ERROR] Fatal NX startup error detected in syslog: {syslog_err}\n")
+                if proc is not None:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                return False
         time.sleep(0.5)
     s = try_connect_socket(port)
     if s:
@@ -247,7 +387,7 @@ def launch_interactive_nx(part_path=None, port=LIVE_PORT):
                 pid = int(pid_str)
                 if _is_pid_alive(pid):
                     sys.stderr.write(
-                        f"[INFO] Existing bridge process with PID {pid} is running. Reusing process.\n"
+                        f"[INFO] Active lock found for PID {pid}. Waiting for socket...\n"
                     )
                     return _wait_for_socket(port, timeout)
         except Exception as e:
@@ -273,14 +413,6 @@ def launch_interactive_nx(part_path=None, port=LIVE_PORT):
             s.close()
             return True
 
-        existing_pid = _find_running_ugraf()
-        if existing_pid is not None:
-            sys.stderr.write(
-                f"[INFO] ugraf.exe appeared (PID {existing_pid}) while waiting for lock. "
-                f"Waiting for socket.\n"
-            )
-            return _wait_for_socket(port, timeout)
-
         # 6. Actually launch ugraf.exe
         run_journal_path, ugraf_path, ugs_router_path = verify_nx_environment()
 
@@ -296,13 +428,27 @@ def launch_interactive_nx(part_path=None, port=LIVE_PORT):
         if sys.platform == "win32":
             CREATE_NEW_PROCESS_GROUP = 0x00000200
             DETACHED_PROCESS = 0x00000008
+            CREATE_BREAKAWAY_FROM_JOB = 0x01000000
             popen_kwargs["creationflags"] = CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS
             popen_kwargs["close_fds"] = True
-
-        ugraf_proc = subprocess.Popen(
-            [str(ugraf_path), f"-auto={bridge_script}"],
-            **popen_kwargs
-        )
+            try:
+                ugraf_proc = subprocess.Popen(
+                    [str(ugraf_path), f"-auto={bridge_script}"],
+                    creationflags=popen_kwargs["creationflags"] | CREATE_BREAKAWAY_FROM_JOB,
+                    close_fds=True,
+                    env=dict(os.environ),
+                )
+            except OSError:
+                ugraf_proc = subprocess.Popen(
+                    [str(ugraf_path), f"-auto={bridge_script}"],
+                    **popen_kwargs
+                )
+        else:
+            popen_kwargs["env"] = dict(os.environ)
+            ugraf_proc = subprocess.Popen(
+                [str(ugraf_path), f"-auto={bridge_script}"],
+                **popen_kwargs
+            )
         NXBridgeProcess._ugraf_proc = ugraf_proc
 
         try:
@@ -311,7 +457,7 @@ def launch_interactive_nx(part_path=None, port=LIVE_PORT):
             sys.stderr.write(f"[WARN] Failed to write bridge lock file: {e}\n")
 
         # 7. Poll for socket connection
-        if _wait_for_socket(port, timeout):
+        if _wait_for_socket(port, timeout, proc=ugraf_proc):
             return True
 
         # 8. Timed out -> kill orphan
@@ -342,12 +488,14 @@ class NXBridgeProcess:
     @classmethod
     def reset(cls, stop_ugraf=False):
         with cls._lock:
-            if stop_ugraf and LOCK_PATH.exists():
+            if LOCK_PATH.exists():
                 try:
                     pid_str = LOCK_PATH.read_text(encoding="utf-8").strip()
+                    pid_alive = False
                     if pid_str.isdigit():
                         pid = int(pid_str)
-                        if _is_pid_alive(pid):
+                        pid_alive = _is_pid_alive(pid)
+                        if stop_ugraf and pid_alive:
                             try:
                                 if sys.platform == "win32":
                                     subprocess.run(
@@ -358,12 +506,11 @@ class NXBridgeProcess:
                                     os.kill(pid, 9)
                             except Exception:
                                 pass
-                except Exception:
-                    pass
-
-            if LOCK_PATH.exists():
-                try:
-                    LOCK_PATH.unlink()
+                    if stop_ugraf or not pid_alive:
+                        try:
+                            LOCK_PATH.unlink()
+                        except Exception:
+                            pass
                 except Exception:
                     pass
 
@@ -493,6 +640,9 @@ class NXBridgeProcess:
             if s is not None:
                 return cls._call_socket(s, tool, args)
 
+            syslog_err = _check_recent_syslog_error(time.time() - 60.0)
+            if syslog_err:
+                sys.stderr.write(f"[WARN] NX launch failure cause: {syslog_err}\n")
             return {"ok": False, "error": NX_PREWARM_REQUIRED_ERROR}
 
 

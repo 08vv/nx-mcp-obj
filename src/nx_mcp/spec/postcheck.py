@@ -160,7 +160,7 @@ def verify_postexecution(
                 report.metrics["live_body_count"] = live_body_count
 
                 if live_body_count != len(alive_bodies):
-                    report.add_warning(
+                    report.add_violation(
                         "body_count_match",
                         f"Live NX body count ({live_body_count}) differs from graph alive body count ({len(alive_bodies)}).",
                     )
@@ -183,7 +183,7 @@ def verify_postexecution(
                             report.metrics["expected_volume"] = exp_vol
                             diff = abs(meas_vol - exp_vol) / exp_vol
                             if diff > tolerance:
-                                report.add_warning(
+                                report.add_violation(
                                     "volume_dimension_match",
                                     f"Measured volume ({meas_vol:.2f} mm^3) deviates by {diff*100:.1f}% from expected ({exp_vol:.2f} mm^3).",
                                 )
@@ -195,6 +195,6 @@ def verify_postexecution(
                     except Exception:
                         pass
         except Exception as e:
-            report.add_warning("live_measurement", f"Could not perform live NXOpen measurement: {e}")
+            report.add_violation("live_measurement", f"Could not perform live NXOpen measurement: {e}")
 
     return report.to_dict()

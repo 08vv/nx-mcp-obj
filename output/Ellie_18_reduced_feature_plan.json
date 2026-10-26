@@ -1,0 +1,497 @@
+{
+  "mesh_name": "Ellie_18_reduced.obj",
+  "primary_axis": "Y",
+  "transverse_axes": [
+    "X",
+    "Z"
+  ],
+  "total_height_mm": 71.1,
+  "total_stations_probed": 44,
+  "range_count": 3,
+  "end_blend_ranges_count": 2,
+  "supported_ranges_count": 1,
+  "unsupported_ranges_count": 0,
+  "ranges": [
+    {
+      "range_index": 1,
+      "elevation_range_mm": [
+        -35.91,
+        -35.03
+      ],
+      "height_span_mm": 0.87,
+      "station_count": 3,
+      "classification": "END_BLEND",
+      "cad_operation": "EDGE_BLEND_OR_CAP",
+      "mean_circularity": 0.495,
+      "mean_aspect_ratio": 2.813,
+      "measured_taper_deg": 89.104,
+      "fitted_primitive": "NOT FITTED: validated by the CAD verifier",
+      "fitted_parameters": {
+        "blend_radius_mm": 0.87,
+        "cap_width": 152.14,
+        "cap_thickness": 33.85
+      },
+      "area_overlap_error_pct": null,
+      "confidence": 1.0,
+      "max_distance_mm": 0.0,
+      "per_station_errors": [
+        23.48,
+        24.19,
+        3.28
+      ],
+      "is_supported": true,
+      "station_summaries": [
+        {
+          "elevation": -35.91,
+          "width": 85.57,
+          "thickness": 29.51,
+          "aspect_ratio": 2.9,
+          "circularity": 0.33
+        },
+        {
+          "elevation": -35.29,
+          "width": 152.14,
+          "thickness": 33.85,
+          "aspect_ratio": 4.5,
+          "circularity": 0.24
+        },
+        {
+          "elevation": -35.03,
+          "width": 197.25,
+          "thickness": 188.59,
+          "aspect_ratio": 1.05,
+          "circularity": 0.92
+        }
+      ]
+    },
+    {
+      "range_index": 2,
+      "elevation_range_mm": [
+        -35.03,
+        34.32
+      ],
+      "height_span_mm": 69.35,
+      "station_count": 40,
+      "classification": "PRISMATIC",
+      "cad_operation": "EXTRUDE",
+      "mean_circularity": 0.911,
+      "mean_aspect_ratio": 1.046,
+      "measured_taper_deg": 2.815,
+      "fitted_primitive": "ROUNDED_RECTANGLE",
+      "fitted_parameters": {
+        "width": 198.457,
+        "thickness": 189.441,
+        "corner_radius": 47.633
+      },
+      "area_overlap_error_pct": 4.55,
+      "confidence": 0.658,
+      "max_distance_mm": 4.701,
+      "per_station_errors": [
+        3.28,
+        3.33,
+        3.4,
+        3.48,
+        3.56,
+        3.6,
+        3.64,
+        3.61,
+        3.69,
+        4.04,
+        4.1,
+        4.1,
+        4.09,
+        3.97,
+        4.12,
+        4.07,
+        3.99,
+        4.09,
+        4.07,
+        4.07,
+        3.42,
+        3.64,
+        3.62,
+        3.61,
+        3.64,
+        3.6,
+        3.59,
+        3.59,
+        3.58,
+        3.54,
+        3.54,
+        3.55,
+        3.54,
+        3.52,
+        3.43,
+        3.3,
+        2.97,
+        3.81,
+        4.55,
+        2.45
+      ],
+      "is_supported": true,
+      "station_summaries": [
+        {
+          "elevation": -35.03,
+          "width": 197.25,
+          "thickness": 188.59,
+          "aspect_ratio": 1.05,
+          "circularity": 0.92
+        },
+        {
+          "elevation": -34.51,
+          "width": 197.88,
+          "thickness": 189.58,
+          "aspect_ratio": 1.04,
+          "circularity": 0.91
+        },
+        {
+          "elevation": -33.48,
+          "width": 198.33,
+          "thickness": 190.2,
+          "aspect_ratio": 1.04,
+          "circularity": 0.91
+        },
+        {
+          "elevation": -31.41,
+          "width": 198.59,
+          "thickness": 190.34,
+          "aspect_ratio": 1.04,
+          "circularity": 0.91
+        },
+        {
+          "elevation": -29.34,
+          "width": 198.77,
+          "thickness": 190.47,
+          "aspect_ratio": 1.04,
+          "circularity": 0.91
+        },
+        {
+          "elevation": -27.27,
+          "width": 198.86,
+          "thickness": 190.57,
+          "aspect_ratio": 1.04,
+          "circularity": 0.91
+        },
+        {
+          "elevation": -25.2,
+          "width": 198.94,
+          "thickness": 190.66,
+          "aspect_ratio": 1.04,
+          "circularity": 0.91
+        },
+        {
+          "elevation": -23.13,
+          "width": 199.0,
+          "thickness": 190.61,
+          "aspect_ratio": 1.04,
+          "circularity": 0.91
+        },
+        {
+          "elevation": -21.06,
+          "width": 199.02,
+          "thickness": 189.75,
+          "aspect_ratio": 1.05,
+          "circularity": 0.9
+        },
+        {
+          "elevation": -18.99,
+          "width": 199.03,
+          "thickness": 189.58,
+          "aspect_ratio": 1.05,
+          "circularity": 0.89
+        },
+        {
+          "elevation": -16.92,
+          "width": 199.06,
+          "thickness": 189.5,
+          "aspect_ratio": 1.05,
+          "circularity": 0.88
+        },
+        {
+          "elevation": -14.85,
+          "width": 199.08,
+          "thickness": 189.46,
+          "aspect_ratio": 1.05,
+          "circularity": 0.88
+        },
+        {
+          "elevation": -12.78,
+          "width": 199.1,
+          "thickness": 189.47,
+          "aspect_ratio": 1.05,
+          "circularity": 0.88
+        },
+        {
+          "elevation": -10.71,
+          "width": 199.12,
+          "thickness": 189.47,
+          "aspect_ratio": 1.05,
+          "circularity": 0.88
+        },
+        {
+          "elevation": -8.64,
+          "width": 199.12,
+          "thickness": 190.16,
+          "aspect_ratio": 1.05,
+          "circularity": 0.87
+        },
+        {
+          "elevation": -6.57,
+          "width": 199.11,
+          "thickness": 189.96,
+          "aspect_ratio": 1.05,
+          "circularity": 0.88
+        },
+        {
+          "elevation": -4.5,
+          "width": 199.11,
+          "thickness": 189.47,
+          "aspect_ratio": 1.05,
+          "circularity": 0.88
+        },
+        {
+          "elevation": -2.43,
+          "width": 199.08,
+          "thickness": 189.47,
+          "aspect_ratio": 1.05,
+          "circularity": 0.89
+        },
+        {
+          "elevation": -0.36,
+          "width": 199.03,
+          "thickness": 189.45,
+          "aspect_ratio": 1.05,
+          "circularity": 0.89
+        },
+        {
+          "elevation": 1.71,
+          "width": 198.88,
+          "thickness": 189.39,
+          "aspect_ratio": 1.05,
+          "circularity": 0.89
+        },
+        {
+          "elevation": 3.78,
+          "width": 198.46,
+          "thickness": 189.44,
+          "aspect_ratio": 1.05,
+          "circularity": 0.91
+        },
+        {
+          "elevation": 5.85,
+          "width": 197.59,
+          "thickness": 190.2,
+          "aspect_ratio": 1.04,
+          "circularity": 0.92
+        },
+        {
+          "elevation": 7.92,
+          "width": 199.27,
+          "thickness": 191.82,
+          "aspect_ratio": 1.04,
+          "circularity": 0.92
+        },
+        {
+          "elevation": 9.99,
+          "width": 198.32,
+          "thickness": 190.64,
+          "aspect_ratio": 1.04,
+          "circularity": 0.92
+        },
+        {
+          "elevation": 12.06,
+          "width": 195.97,
+          "thickness": 188.57,
+          "aspect_ratio": 1.04,
+          "circularity": 0.92
+        },
+        {
+          "elevation": 14.14,
+          "width": 195.69,
+          "thickness": 188.53,
+          "aspect_ratio": 1.04,
+          "circularity": 0.92
+        },
+        {
+          "elevation": 16.21,
+          "width": 195.43,
+          "thickness": 188.48,
+          "aspect_ratio": 1.04,
+          "circularity": 0.92
+        },
+        {
+          "elevation": 18.28,
+          "width": 195.17,
+          "thickness": 188.43,
+          "aspect_ratio": 1.04,
+          "circularity": 0.92
+        },
+        {
+          "elevation": 20.35,
+          "width": 194.93,
+          "thickness": 188.39,
+          "aspect_ratio": 1.03,
+          "circularity": 0.92
+        },
+        {
+          "elevation": 22.42,
+          "width": 194.7,
+          "thickness": 188.35,
+          "aspect_ratio": 1.03,
+          "circularity": 0.92
+        },
+        {
+          "elevation": 24.49,
+          "width": 194.47,
+          "thickness": 188.31,
+          "aspect_ratio": 1.03,
+          "circularity": 0.92
+        },
+        {
+          "elevation": 26.56,
+          "width": 194.25,
+          "thickness": 188.28,
+          "aspect_ratio": 1.03,
+          "circularity": 0.92
+        },
+        {
+          "elevation": 28.63,
+          "width": 194.02,
+          "thickness": 188.25,
+          "aspect_ratio": 1.03,
+          "circularity": 0.92
+        },
+        {
+          "elevation": 30.7,
+          "width": 193.8,
+          "thickness": 188.22,
+          "aspect_ratio": 1.03,
+          "circularity": 0.92
+        },
+        {
+          "elevation": 32.77,
+          "width": 193.5,
+          "thickness": 187.83,
+          "aspect_ratio": 1.03,
+          "circularity": 0.92
+        },
+        {
+          "elevation": 33.28,
+          "width": 193.33,
+          "thickness": 187.15,
+          "aspect_ratio": 1.03,
+          "circularity": 0.92
+        },
+        {
+          "elevation": 33.54,
+          "width": 193.19,
+          "thickness": 186.55,
+          "aspect_ratio": 1.04,
+          "circularity": 0.94
+        },
+        {
+          "elevation": 33.8,
+          "width": 192.91,
+          "thickness": 184.75,
+          "aspect_ratio": 1.04,
+          "circularity": 0.95
+        },
+        {
+          "elevation": 34.06,
+          "width": 192.5,
+          "thickness": 176.77,
+          "aspect_ratio": 1.09,
+          "circularity": 0.96
+        },
+        {
+          "elevation": 34.32,
+          "width": 192.01,
+          "thickness": 165.2,
+          "aspect_ratio": 1.16,
+          "circularity": 0.97
+        }
+      ]
+    },
+    {
+      "range_index": 3,
+      "elevation_range_mm": [
+        34.32,
+        35.19
+      ],
+      "height_span_mm": 0.87,
+      "station_count": 3,
+      "classification": "END_BLEND",
+      "cad_operation": "EDGE_BLEND_OR_CAP",
+      "mean_circularity": 0.955,
+      "mean_aspect_ratio": 1.197,
+      "measured_taper_deg": 86.653,
+      "fitted_primitive": "NOT FITTED: validated by the CAD verifier",
+      "fitted_parameters": {
+        "blend_radius_mm": 0.87,
+        "cap_width": 190.64,
+        "cap_thickness": 153.45
+      },
+      "area_overlap_error_pct": null,
+      "confidence": 1.0,
+      "max_distance_mm": 0.0,
+      "per_station_errors": [
+        2.45,
+        2.54,
+        5.25
+      ],
+      "is_supported": true,
+      "station_summaries": [
+        {
+          "elevation": 34.32,
+          "width": 192.01,
+          "thickness": 165.2,
+          "aspect_ratio": 1.16,
+          "circularity": 0.97
+        },
+        {
+          "elevation": 34.58,
+          "width": 190.64,
+          "thickness": 153.45,
+          "aspect_ratio": 1.24,
+          "circularity": 0.95
+        },
+        {
+          "elevation": 35.19,
+          "width": 163.95,
+          "thickness": 138.04,
+          "aspect_ratio": 1.19,
+          "circularity": 0.95
+        }
+      ]
+    }
+  ],
+  "cad_parameters": {
+    "BODY_WIDTH": 198.457,
+    "BODY_THICKNESS": 189.441,
+    "BODY_CORNER_R": 47.633,
+    "BODY_START_Y": -35.91,
+    "BODY_HEIGHT": 71.098,
+    "BODY_TAPER": 2.815,
+    "END_BLEND_R": 0.87
+  },
+  "overall_status": "SUPPORTED",
+  "is_degenerate": false,
+  "rejection_reasons": [],
+  "rotation_matrix": [
+    [
+      1.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      1.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ]
+}

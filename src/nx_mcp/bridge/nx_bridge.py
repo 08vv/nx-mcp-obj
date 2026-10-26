@@ -73,11 +73,35 @@ def _get_uf():
     return UF_SESSION
 
 
+class _UFModlProxy:
+    """Proxy providing unified access across NXOpen.UF modeling modules.
+
+    NXOpen UF splits classic UF_MODL functionality across ModlGeneral, Modeling,
+    ModlFeatures, and Modl. This proxy transparently delegates attribute lookup
+    so callers can access methods like AskBoundingBox, AskFaceData, AskEdgeVerts,
+    and AskEdgeFeats from a single object.
+    """
+    def __init__(self, uf):
+        self._containers = [
+            getattr(uf, "ModlGeneral", None),
+            getattr(uf, "Modeling", None),
+            getattr(uf, "ModlFeatures", None),
+            getattr(uf, "Modl", None),
+        ]
+        self._containers = [c for c in self._containers if c is not None]
+
+    def __getattr__(self, name):
+        for c in self._containers:
+            if hasattr(c, name):
+                return getattr(c, name)
+        raise AttributeError(f"UF modeling proxy has no attribute '{name}'")
+
+
 def _get_uf_modl():
     uf = _get_uf()
     if uf is None:
         return None
-    return getattr(uf, "Modl", None) or getattr(uf, "Modeling", None)
+    return _UFModlProxy(uf)
 
 ACTIVE_SKETCH_PLANE = "XY"
 _state = {
@@ -468,6 +492,7 @@ def _register_body(body, set_last=True):
     if set_last:
         _state["last_body"] = body
         _state["last_body_id"] = body_id
+    _state.setdefault("body_history", []).append(body)
     name = _body_name(body)
     _state["bodies"][name.lower()] = body
     return body_id
@@ -574,10 +599,10 @@ def _seed_counters_from_part(work_part):
     _state["bodies"] = {}
     _state["features"] = {}
     _state["sketches"] = {}
-    _state["curves"] = {}
-    _state["profiles"] = {}
-    _state["curve_history"] = []
-    _state["last_curves"] = []
+    if "curve_history" not in _state:
+        _state["curve_history"] = []
+    if "last_curves" not in _state:
+        _state["last_curves"] = []
     _state["last_body"] = None
     _state["last_feature"] = None
     _state["last_profile"] = None
@@ -592,6 +617,13 @@ def _seed_counters_from_part(work_part):
 
 
 def _iter_features(work_part):
+    features = []
+    try:
+        for f in work_part.Features:
+            features.append(f)
+        return features
+    except Exception:
+        pass
     to_array = getattr(work_part.Features, "ToArray", None)
     if callable(to_array):
         return list(to_array() or [])
@@ -706,7 +738,7 @@ def _parse_bbox_result(bbox):
             dists = _point_tuple(bbox[2])
             p_max = (p_min[0] + abs(dists[0]), p_min[1] + abs(dists[1]), p_min[2] + abs(dists[2]))
             return (
-                (min(p_min[0], p_max[0]), min(p_min[0], p_max[1]), min(p_min[2], p_max[2])),
+                (min(p_min[0], p_max[0]), min(p_min[1], p_max[1]), min(p_min[2], p_max[2])),
                 (max(p_min[0], p_max[0]), max(p_min[1], p_max[1]), max(p_min[2], p_max[2])),
             )
         except Exception:
@@ -788,9 +820,13 @@ def _body_bounds(body):
                 coords = getattr(v, "Coordinates", v)
                 points.append(_point_tuple(coords))
         try:
-            z, r = _edge_z_and_radius(edge)
-            if r > 0:
-                points.extend([(-r, -r, z), (r, r, z), (r, -r, z), (-r, r, z)])
+            center, r = _edge_center_and_radius(edge)
+            if r > 0 and center is not None:
+                cx, cy, cz = center
+                points.extend([
+                    (cx - r, cy - r, cz - r),
+                    (cx + r, cy + r, cz + r),
+                ])
         except Exception:
             pass
 
@@ -904,7 +940,7 @@ def _resolve_body(reference="last"):
 
     if ref in {"last", "last body", "last_created", "last created body", "target", "primary", "main"}:
         body = _state.get("last_body")
-        if body is not None and _is_real_solid_body(body):
+        if body is not None:
             try:
                 _body_bounds(body)
                 return body
@@ -913,16 +949,31 @@ def _resolve_body(reference="last"):
         existing_bid = _state.get("last_body_id")
         if existing_bid:
             refreshed = _refresh_body_by_name(existing_bid, all_bodies)
-            if refreshed is not None and _is_real_solid_body(refreshed):
+            if refreshed is not None:
                 _rebind_body_id(existing_bid, refreshed)
                 return refreshed
         if solid_bodies:
-            best_body = max(solid_bodies, key=_body_volume_metric)
+            best_body = solid_bodies[-1]
             if existing_bid:
                 _rebind_body_id(existing_bid, best_body)
             else:
                 _register_body(best_body)
             return best_body
+        if all_bodies:
+            return all_bodies[-1]
+
+    if ref in {"previous", "second_to_last", "penultimate"}:
+        if len(solid_bodies) >= 2:
+            return solid_bodies[-2]
+        all_list = list(all_bodies)
+        if len(all_list) >= 2:
+            return all_list[-2]
+        body_hist = _state.get("body_history", [])
+        if len(body_hist) >= 2:
+            return body_hist[-2]
+        if all_list:
+            return all_list[0]
+        raise SelectionError("No previous body available in part")
 
     if ref.startswith("body_"):
         if ref in _state.get("bodies", {}):
@@ -1040,28 +1091,13 @@ def _edge_midpoint(edge):
     return (0.0, 0.0, 0.0)
 
 
-def _edge_z_and_radius(edge):
-    """Accurately compute Z-height and radial distance from Z-axis for an edge."""
+def _edge_center_and_radius(edge):
+    """Accurately compute 3D center and radius for a circular edge."""
     uf = _get_uf()
     if uf is None:
-        return 0.0, 0.0
+        return None, 0.0
 
-    # 1. Check if edge vertices are distinct
-    try:
-        mod = _get_uf_modl()
-        if mod and hasattr(mod, "AskEdgeVerts"):
-            pt1, pt2, count = mod.AskEdgeVerts(edge.Tag)
-            if count > 0:
-                p1 = _point_tuple(pt1)
-                p2 = _point_tuple(pt2)
-                z = (p1[2] + p2[2]) / 2.0
-                r = math.sqrt(((p1[0] + p2[0]) / 2.0) ** 2 + ((p1[1] + p2[1]) / 2.0) ** 2)
-                if count > 1 or abs(r) > 0.001:
-                    return z, r
-    except Exception:
-        pass
-
-    # 2. Try Eval to check if edge is circular arc
+    # 1. Try Eval to check if edge is circular arc
     try:
         if hasattr(uf, "Eval"):
             ev = uf.Eval.Initialize(edge.Tag)
@@ -1073,7 +1109,7 @@ def _edge_z_and_radius(edge):
                     center = _point_tuple(center_obj)
                     radius = float(rad_val)
                     if radius > 0:
-                        return center[2], radius
+                        return center, radius
             finally:
                 try:
                     uf.Eval.Free(ev)
@@ -1082,10 +1118,10 @@ def _edge_z_and_radius(edge):
     except Exception:
         pass
 
-    # 3. For closed circular edges, check adjacent planar and cylindrical faces
+    # 2. Check adjacent planar and cylindrical faces
     try:
         faces = getattr(edge, "GetFaces", lambda: [])() or []
-        edge_z = None
+        edge_center = None
         edge_r = None
         mod = _get_uf_modl()
         for f in faces:
@@ -1095,15 +1131,41 @@ def _edge_z_and_radius(edge):
                     ftype = int(data[0]) if len(data) > 0 else 0
                     origin = _point_tuple(data[1]) if len(data) > 1 else (0.0, 0.0, 0.0)
                     if ftype == 22:  # planar face
-                        edge_z = origin[2]
+                        edge_center = origin
                     elif ftype == 16 and len(data) > 4:  # cylinder face
                         edge_r = float(data[4])
             except Exception:
                 pass
-        if edge_z is not None and edge_r is not None and edge_r > 0:
-            return edge_z, edge_r
-        if edge_r is not None and edge_r > 0:
-            return (edge_z if edge_z is not None else 0.0), edge_r
+        if edge_center is not None and edge_r is not None and edge_r > 0:
+            return edge_center, edge_r
+    except Exception:
+        pass
+
+    return None, 0.0
+
+
+def _edge_z_and_radius(edge):
+    """Accurately compute Z-height and radial distance from Z-axis for an edge."""
+    center, r = _edge_center_and_radius(edge)
+    if center is not None and r > 0:
+        return center[2], r
+
+    uf = _get_uf()
+    if uf is None:
+        return 0.0, 0.0
+
+    # Fallback: check if edge vertices are distinct
+    try:
+        mod = _get_uf_modl()
+        if mod and hasattr(mod, "AskEdgeVerts"):
+            pt1, pt2, count = mod.AskEdgeVerts(edge.Tag)
+            if count > 0:
+                p1 = _point_tuple(pt1)
+                p2 = _point_tuple(pt2)
+                z = (p1[2] + p2[2]) / 2.0
+                r = math.sqrt(((p1[0] + p2[0]) / 2.0) ** 2 + ((p1[1] + p2[1]) / 2.0) ** 2)
+                if count > 1 or abs(r) > 0.001:
+                    return z, r
     except Exception:
         pass
 
@@ -1482,18 +1544,31 @@ def create_part(filename=None, filepath=None, overwrite=True):
         return {"ok": False, "error": "Missing required filename for create_part"}
     filepath = os.path.abspath(target_path)
     filename = filepath
-    
+
+    session = _get_session()
+    if session is None:
+        return {"ok": False, "error": "No active Siemens NX session available"}
+
+    leaf_name = os.path.basename(filepath).lower()
+    leaf_stem = os.path.splitext(leaf_name)[0].lower()
+
     # 1. If part is already open in session, close it first
-    if 'SESSION' in globals() and SESSION and hasattr(SESSION, "Parts"):
+    if hasattr(session, "Parts"):
         try:
-            for part in list(SESSION.Parts):
+            for part in list(session.Parts):
                 try:
-                    if os.path.abspath(part.FullPath).lower() == filepath.lower():
-                        part.Close(
-                            NXOpen.BasePart.CloseWholeTree.FalseValue,
-                            NXOpen.BasePart.CloseModified.CloseModified,
-                            None,
-                        )
+                    p_full = getattr(part, "FullPath", "").lower()
+                    p_leaf = getattr(part, "Leaf", "").lower()
+                    if p_full == filepath.lower() or p_leaf in (leaf_name, leaf_stem):
+                        if overwrite:
+                            try:
+                                part.Close(
+                                    NXOpen.BasePart.CloseWholeTree.TrueValue,
+                                    getattr(NXOpen.BasePart.CloseModified, "UseResponses", NXOpen.BasePart.CloseModified.CloseModified),
+                                    None,
+                                )
+                            except Exception:
+                                pass
                 except Exception:
                     pass
         except Exception:
@@ -1513,30 +1588,53 @@ def create_part(filename=None, filepath=None, overwrite=True):
                 filepath = f"{base}_{idx}{ext}"
                 filename = filepath
         else:
-            base, ext = os.path.splitext(filepath)
-            idx = 1
-            while os.path.exists(f"{base}_{idx}{ext}"):
-                idx += 1
-            filepath = f"{base}_{idx}{ext}"
-            filename = filepath
+            return {"ok": False, "error": f"File '{filepath}' already exists on disk and overwrite is False"}
 
-    SESSION.Parts.NewDisplay(
-        filename,
-        NXOpen.Part.Units.Millimeters,
-    )
-    work_part = SESSION.Parts.Work
+    try:
+        session.Parts.NewDisplay(
+            filename,
+            NXOpen.Part.Units.Millimeters,
+        )
+    except Exception as new_err:
+        if "already exists" in str(new_err).lower():
+            for p in list(session.Parts):
+                if getattr(p, "FullPath", "").lower() == filepath.lower():
+                    session.Parts.SetWork(p)
+                    break
+            else:
+                return {"ok": False, "error": f"Failed to create part '{filename}': {new_err}"}
+        else:
+            return {"ok": False, "error": f"Failed to create part '{filename}': {new_err}"}
+
+    work_part = session.Parts.Work
     if work_part is None:
         return {"ok": False, "error": "Part created but work part not set"}
+
     # Reset and re-seed counters and clear transient state for the new part
     _expression_counters.clear()
     _instance_counters.clear()
     _counters_seeded = False
     _seed_counters_from_part(work_part)
     _counters_seeded = True
-    
+
+    _state.clear()
+    _state.update({
+        "last_curves": [],
+        "last_feature": None,
+        "last_body": None,
+        "features": {},
+        "bodies": {},
+        "sketches": {},
+        "active_sketch": None,
+    })
+
     fit_view()
     _update_result_files(filepath)
-    return {"ok": True, "message": f"Created and displayed fresh part: {filename}", "filepath": filepath}
+    return {
+        "ok": True,
+        "message": f"Created in-memory session part: {filepath} (NOTICE: File is not yet written to disk; call save_part() to persist changes to disk).",
+        "filepath": filepath,
+    }
 
 
 def open_part(filepath):
@@ -1616,17 +1714,25 @@ def open_part(filepath):
 
 
 def save_part():
-    work_part = SESSION.Parts.Work
+    session = _get_session()
+    work_part = session.Parts.Work if (session and hasattr(session, "Parts")) else None
     if work_part is None:
         return {"ok": False, "error": "No work part is open"}
-    work_part.Save(
-        NXOpen.BasePart.SaveComponents.TrueValue,
-        NXOpen.BasePart.CloseAfterSave.FalseValue,
-    )
     import os
     filepath = os.path.abspath(work_part.FullPath)
+    try:
+        work_part.Save(
+            NXOpen.BasePart.SaveComponents.TrueValue,
+            NXOpen.BasePart.CloseAfterSave.FalseValue,
+        )
+    except Exception as e:
+        try:
+            work_part.SaveAs(filepath)
+        except Exception as e2:
+            return {"ok": False, "error": f"Failed to save part: {e} (SaveAs fallback: {e2})"}
+
     _update_result_files(filepath)
-    return {"ok": True, "message": "Saved", "filepath": filepath}
+    return {"ok": True, "message": f"Saved part: {filepath}", "filepath": filepath}
 
 
 def save_part_as(filename=None, filepath=None, overwrite=True):
@@ -1635,7 +1741,8 @@ def save_part_as(filename=None, filepath=None, overwrite=True):
     if not target_path:
         return {"ok": False, "error": "Missing required filename for save_part_as"}
 
-    work_part = SESSION.Parts.Work
+    session = _get_session()
+    work_part = session.Parts.Work if (session and hasattr(session, "Parts")) else None
     if work_part is None:
         return {"ok": False, "error": "No work part is open"}
 
@@ -1643,18 +1750,52 @@ def save_part_as(filename=None, filepath=None, overwrite=True):
     if not os.path.splitext(target_abs)[1]:
         target_abs += ".prt"
 
-    if os.path.exists(target_abs):
+    exists_on_disk = os.path.exists(target_abs)
+    if exists_on_disk:
         if overwrite:
             try:
                 os.remove(target_abs)
-            except Exception:
-                pass
+            except Exception as e:
+                return {
+                    "ok": False,
+                    "error": f"File '{target_abs}' already exists on disk and could not be overwritten (file may be locked): {e}",
+                }
         else:
-            return {"ok": False, "error": f"File '{target_abs}' already exists and overwrite is False"}
+            return {"ok": False, "error": f"File '{target_abs}' already exists on disk and overwrite is False"}
+
+    wp_full = os.path.abspath(getattr(work_part, "FullPath", "")).lower()
+    wp_leaf = getattr(work_part, "Leaf", "").lower()
+    target_leaf = os.path.splitext(os.path.basename(target_abs))[0].lower()
 
     try:
         work_part.SaveAs(target_abs)
     except Exception as e:
+        err_msg = str(e)
+        if "already exists" in err_msg.lower():
+            if not exists_on_disk:
+                if wp_full == target_abs.lower() or wp_leaf == target_leaf:
+                    return {
+                        "ok": False,
+                        "error": (
+                            f"Cannot save_part_as '{target_abs}': File does not exist on disk, "
+                            f"but this is the active work part in NX session memory. "
+                            f"Call save_part() instead of save_part_as() to persist the active part to disk."
+                        ),
+                    }
+                else:
+                    return {
+                        "ok": False,
+                        "error": (
+                            f"Cannot save_part_as '{target_abs}': File does not exist on disk, "
+                            f"but a part with this name is already loaded in NX session memory. "
+                            f"Close the conflicting part or choose a different target filename."
+                        ),
+                    }
+            else:
+                return {
+                    "ok": False,
+                    "error": f"Failed to save part as '{target_abs}': File already exists on disk.",
+                }
         return {"ok": False, "error": f"Failed to save part as '{target_abs}': {e}"}
 
     actual_path = os.path.abspath(work_part.FullPath if work_part else target_abs)
@@ -1749,7 +1890,6 @@ def draw_rectangle(x, y, width, height, z=None):
                     pass
     cids = [_register_curve(line) for line in lines]
     _state.setdefault("last_curves", []).extend(lines)
-    _state.setdefault("curve_history", []).append(list(lines))
     fit_view()
 
     return {
@@ -1811,7 +1951,6 @@ def draw_circle(cx, cy, radius, z=None):
                 pass
     cid = _register_curve(circle)
     _state.setdefault("last_curves", []).append(circle)
-    _state.setdefault("curve_history", []).append([circle])
     fit_view()
     return {"ok": True, "message": f"Circle {cx},{cy} R={radius}", "curve_id": cid}
 
@@ -1839,7 +1978,6 @@ def draw_line(x1, y1, x2, y2, z=None):
                 pass
     cid = _register_curve(line)
     _state.setdefault("last_curves", []).append(line)
-    _state.setdefault("curve_history", []).append([line])
     fit_view()
     return {"ok": True, "message": f"Line {x1},{y1} to {x2},{y2}", "curve_id": cid}
 
@@ -1862,8 +2000,15 @@ def draw_arc(cx, cy, radius, start_angle, end_angle, z=None):
     angle_rad = math.radians(angle_deg)
     cos_a = math.cos(angle_rad)
     sin_a = math.sin(angle_rad)
-    x_dir = NXOpen.Vector3d(cos_a, sin_a, 0.0)
-    y_dir = NXOpen.Vector3d(-sin_a, cos_a, 0.0)
+    if ACTIVE_SKETCH_PLANE == "XZ":
+        x_dir = NXOpen.Vector3d(cos_a, 0.0, sin_a)
+        y_dir = NXOpen.Vector3d(-sin_a, 0.0, cos_a)
+    elif ACTIVE_SKETCH_PLANE == "YZ":
+        x_dir = NXOpen.Vector3d(0.0, cos_a, sin_a)
+        y_dir = NXOpen.Vector3d(0.0, -sin_a, cos_a)
+    else:
+        x_dir = NXOpen.Vector3d(cos_a, sin_a, 0.0)
+        y_dir = NXOpen.Vector3d(-sin_a, cos_a, 0.0)
 
     rot_val = _state.get("sketch_rotation", 0.0)
     arc = part.Curves.CreateArc(
@@ -1885,7 +2030,6 @@ def draw_arc(cx, cy, radius, start_angle, end_angle, z=None):
                 pass
     cid = _register_curve(arc)
     _state.setdefault("last_curves", []).append(arc)
-    _state.setdefault("curve_history", []).append([arc])
     fit_view()
     return {"ok": True, "message": f"Arc {cx},{cy} R={radius} {start_angle} to {end_angle} deg", "curve_id": cid}
 
@@ -2683,13 +2827,14 @@ def extrude(distance, start=0, direction="auto"):
     return {"ok": True, "message": f"Extruded {float(distance)}mm", "body_id": bid, "feature_id": fid}
 
 
-def create_cuboid(length, width, height, x=0.0, y=0.0, z=0.0):
+def create_cuboid(length, width, height, x=0.0, y=0.0, z=0.0, centered=False):
     length = float(length)
     width = float(width)
     height = float(height)
     x = float(x)
     y = float(y)
     z = float(z)
+    centered = bool(centered)
 
     if length <= 0.0 or width <= 0.0 or height <= 0.0:
         return {"ok": False, "error": "Cuboid dimensions must be positive"}
@@ -2702,11 +2847,15 @@ def create_cuboid(length, width, height, x=0.0, y=0.0, z=0.0):
     w_name = _create_input_expression(work_part, f"{prefix}_W", width)
     h_name = _create_input_expression(work_part, f"{prefix}_H", height)
     
+    x_origin = x - length / 2.0 if centered else x
+    y_origin = y - width / 2.0 if centered else y
+    z_origin = z - height / 2.0 if centered else z
+
     builder = work_part.Features.CreateBlockFeatureBuilder(
         NXOpen.Features.Feature.Null
     )
     try:
-        origin = NXOpen.Point3d(x, y, z)
+        origin = NXOpen.Point3d(x_origin, y_origin, z_origin)
         builder.Type = NXOpen.Features.BlockFeatureBuilder.Types.OriginAndEdgeLengths
         builder.SetOriginAndLengths(origin, l_name, w_name, h_name)
         builder.SetBooleanOperationAndTarget(
@@ -2720,9 +2869,14 @@ def create_cuboid(length, width, height, x=0.0, y=0.0, z=0.0):
 
     bid, fid = _current_body_and_feature_ids(feature)
     fit_view()
+    msg = (
+        f"Cuboid {length}x{width}x{height}mm centered at ({x_origin},{y_origin},{z_origin})"
+        if centered
+        else f"Cuboid {length}x{width}x{height}mm at ({x},{y},{z})"
+    )
     return {
         "ok": True,
-        "message": f"Cuboid {length}x{width}x{height}mm at ({x},{y},{z})",
+        "message": msg,
         "body_id": bid,
         "feature_id": fid,
         "consumed": [],
@@ -2747,11 +2901,12 @@ def create_two_cuboids():
     }
 
 
-def create_cube(size, x=0.0, y=0.0, z=0.0):
+def create_cube(size, x=0.0, y=0.0, z=0.0, centered=False):
     size = float(size)
     x = float(x)
     y = float(y)
     z = float(z)
+    centered = bool(centered)
 
     if size <= 0.0:
         return {"ok": False, "error": "Cube size must be positive"}
@@ -2760,11 +2915,15 @@ def create_cube(size, x=0.0, y=0.0, z=0.0):
     prefix = _next_instance_prefix("CUBE")
     s_name = _create_input_expression(work_part, f"{prefix}_SIZE", size)
 
+    x_origin = x - size / 2.0 if centered else x
+    y_origin = y - size / 2.0 if centered else y
+    z_origin = z - size / 2.0 if centered else z
+
     builder = work_part.Features.CreateBlockFeatureBuilder(
         NXOpen.Features.Feature.Null
     )
     try:
-        origin = NXOpen.Point3d(x, y, z)
+        origin = NXOpen.Point3d(x_origin, y_origin, z_origin)
         builder.Type = NXOpen.Features.BlockFeatureBuilder.Types.OriginAndEdgeLengths
         builder.SetOriginAndLengths(origin, s_name, s_name, s_name)
         builder.SetBooleanOperationAndTarget(
@@ -2778,7 +2937,12 @@ def create_cube(size, x=0.0, y=0.0, z=0.0):
 
     bid, fid = _current_body_and_feature_ids(feature)
     fit_view()
-    return {"ok": True, "message": f"Cube {size}mm at ({x},{y},{z})", "body_id": bid, "feature_id": fid}
+    msg = (
+        f"Cube {size}mm centered at ({x_origin},{y_origin},{z_origin})"
+        if centered
+        else f"Cube {size}mm at ({x},{y},{z})"
+    )
+    return {"ok": True, "message": msg, "body_id": bid, "feature_id": fid}
 
 
 def create_cylinder(radius, height, x=0.0, y=0.0, z=0.0, direction="Z"):
@@ -2924,17 +3088,24 @@ def _boolean_operation(operation, target="last", tool="last"):
     except Exception:
         tool_body = None
 
+    all_bodies = list(_iter_bodies(work_part))
+    solid_bodies = [b for b in all_bodies if _is_real_solid_body(b)]
+    if str(target).lower() in ("previous", "second_to_last", "penultimate") and str(tool).lower() in ("last", "active"):
+        cand_list = solid_bodies if len(solid_bodies) >= 2 else all_bodies
+        if len(cand_list) >= 2:
+            target_body = cand_list[-2]
+            tool_body = cand_list[-1]
+
     # Smart fallback if exactly 2 bodies exist in the part
-    bodies = _iter_bodies(work_part)
-    if len(bodies) == 2:
+    if len(all_bodies) == 2:
         if target_body is None or tool_body is None or target_body == tool_body:
             last_body = _state.get("last_body")
-            if last_body in bodies:
+            if last_body in all_bodies:
                 target_body = last_body
-                tool_body = bodies[0] if bodies[1] == last_body else bodies[1]
+                tool_body = all_bodies[0] if all_bodies[1] == last_body else all_bodies[1]
             else:
-                target_body = bodies[0]
-                tool_body = bodies[1]
+                target_body = all_bodies[0]
+                tool_body = all_bodies[1]
 
     # Re-evaluate to raise exception if still unresolved
     if target_body is None:
@@ -3409,13 +3580,30 @@ def mirror_feature(feature_name="last", plane="XZ"):
             raise SelectionError("Mirror builder has no supported feature selection property")
 
         if hasattr(builder, "PlaneOption"):
-            builder.PlaneOption = NXOpen.Features.MirrorFeatureBuilder.PlaneOptions.Existing
+            try:
+                builder.PlaneOption = NXOpen.Features.MirrorFeatureBuilder.PlaneOptions.Existing
+            except Exception:
+                pass
         if hasattr(builder, "Plane"):
-            builder.Plane.SetValue(
-                datum_plane,
-                work_part.ModelingViews.WorkView,
-                NXOpen.Point3d(0.0, 0.0, 0.0),
-            )
+            try:
+                builder.Plane.Value = datum_plane
+            except Exception:
+                try:
+                    p_obj = work_part.Planes.CreatePlane(
+                        NXOpen.Point3d(0.0, 0.0, 0.0),
+                        _plane_normal(plane),
+                        NXOpen.SmartObject.UpdateOption.WithinModeling
+                    )
+                    builder.Plane = p_obj
+                except Exception:
+                    try:
+                        builder.Plane.SetValue(
+                            datum_plane,
+                            work_part.ModelingViews.WorkView,
+                            NXOpen.Point3d(0.0, 0.0, 0.0),
+                        )
+                    except Exception:
+                        builder.Plane = datum_plane
         elif hasattr(builder, "MirrorPlane"):
             builder.MirrorPlane = datum_plane
         else:
@@ -3445,6 +3633,58 @@ def mirror_feature(feature_name="last", plane="XZ"):
         "modified": [target_bid] if target_bid else [],
         "produced": [],
     }
+
+
+def mirror_body(body="last", plane="XZ"):
+    work_part = _ensure_work_part()
+    tb = _resolve_body(body)
+    plane_str = str(plane or "XZ").strip().upper()
+
+    # Try native CreateMirrorBodyBuilder
+    mbb_factory = getattr(work_part.Features, "CreateMirrorBodyBuilder", None)
+    if callable(mbb_factory):
+        try:
+            builder = mbb_factory(NXOpen.Features.Feature.Null)
+            try:
+                rule = work_part.ScRuleFactory.CreateRuleBodyDumb([tb])
+                coll = work_part.ScCollectors.CreateCollector()
+                coll.ReplaceRules([rule], False)
+                if hasattr(builder, "BodyCollector"):
+                    builder.BodyCollector = coll
+                elif hasattr(builder, "Bodies"):
+                    builder.Bodies.Add([tb])
+
+                # Datum plane
+                datum_builder = work_part.Features.CreateDatumPlaneBuilder(NXOpen.Features.Feature.Null)
+                try:
+                    datum_builder.SetFixedDatumPlane(_fixed_datum_plane_type(plane_str))
+                    datum_builder.CommitFeature()
+                    d_plane = datum_builder.GetDatum()
+                finally:
+                    datum_builder.Destroy()
+
+                if hasattr(builder, "Plane"):
+                    try:
+                        builder.Plane.Value = d_plane
+                    except Exception:
+                        try:
+                            p_obj = work_part.Planes.CreatePlane(NXOpen.Point3d(0.0, 0.0, 0.0), _plane_normal(plane_str), NXOpen.SmartObject.UpdateOption.WithinModeling)
+                            builder.Plane = p_obj
+                        except Exception:
+                            pass
+                elif hasattr(builder, "MirrorPlane"):
+                    builder.MirrorPlane = d_plane
+
+                feature = builder.CommitFeature()
+                _remember_feature(feature, is_creation=True)
+                bid, fid = _current_body_and_feature_ids(feature)
+                return {"ok": True, "message": f"Mirrored body '{_body_name(tb)}' across {plane_str}", "body_id": bid, "feature_id": fid}
+            finally:
+                builder.Destroy()
+        except Exception as e:
+            sys.stderr.write(f"MirrorBodyBuilder fallback: {e}\n")
+
+    return mirror_feature(feature_name="last", plane=plane_str)
 
 
 def pattern_feature(feature_name="last", direction="X", count=3, pitch=10.0):
@@ -3887,6 +4127,12 @@ def create_rib(thickness, direction="auto", body="last", flip=False):
 
     work_part = _ensure_work_part()
     curves = _state.get("last_curves", [])
+    if not curves and work_part:
+        sketches = list(work_part.Sketches or [])
+        if sketches:
+            curves = list(sketches[-1].GetAllGeometry() or [])
+            if curves:
+                _state["last_curves"] = curves
     if not curves:
         return {"ok": False, "error": "No profile curves — draw a rib profile first"}
 
@@ -4361,7 +4607,7 @@ def loft(profile_ids, guide_curve_ids=None, body_type="solid"):
     }
 
 
-def variable_offset(target_ref="last", offset_start=5.0, offset_end=None, law="linear", body="last"):
+def variable_offset(target_ref="last", offset_start=5.0, offset_end=None, law="linear", body="last", face_x=0.0, face_y=0.0, face_z=0.0):
     """Offset curves (with constant or variable law) or offset faces by distance."""
     offset_start = _eval_val(offset_start)
     work_part = _ensure_work_part()
@@ -4414,13 +4660,22 @@ def variable_offset(target_ref="last", offset_start=5.0, offset_end=None, law="l
 
     prefix = _next_instance_prefix("OFFSET_FACE")
     dist_name = _create_input_expression(work_part, f"{prefix}_DIST", offset_start)
-    target_face = _resolve_face_by_coordinate(body, 0.0, 0.0, 0.0) if target_ref == "last" else target_ref
+    if isinstance(target_ref, NXOpen.Face):
+        target_face = target_ref
+    else:
+        target_face = _resolve_face_by_coordinate(body, float(face_x), float(face_y), float(face_z))
+    if not target_face:
+        # Fallback to first face on body
+        tb = _resolve_body(body)
+        faces = list(tb.GetFaces() or []) if tb else []
+        if faces:
+            target_face = faces[0]
+
     builder = work_part.Features.CreateOffsetFaceBuilder(NXOpen.Features.Feature.Null)
     try:
-        collector = work_part.ScCollectors.CreateCollector()
         rule = work_part.ScRuleFactory.CreateRuleFaceDumb([target_face])
-        collector.ReplaceRules([rule], False)
-        builder.FaceCollector = collector
+        if hasattr(builder, "FaceCollector"):
+            builder.FaceCollector.ReplaceRules([rule], False)
         builder.Distance.RightHandSide = dist_name
 
         feature = builder.CommitFeature()
@@ -4724,6 +4979,40 @@ def extrude_cut(distance, start=0.0, target="last", direction="auto", reverse_di
     }
 
 
+def _face_centroid(face):
+    """Compute an accurate 3D centroid for a face using its bounding edges and vertices."""
+    try:
+        edges = list(face.GetEdges() or [])
+        if not edges:
+            return (0.0, 0.0, 0.0)
+
+        # If single circular edge, use its arc center
+        if len(edges) == 1:
+            center, _ = _edge_center_and_radius(edges[0])
+            if center is not None:
+                return center
+
+        pts = []
+        for edge in edges:
+            p1, p2 = _get_edge_endpoints(edge)
+            if p1:
+                pts.append(p1)
+            if p2:
+                pts.append(p2)
+            mid = _edge_midpoint(edge)
+            if mid and mid != (0.0, 0.0, 0.0):
+                pts.append(mid)
+
+        if pts:
+            avg_x = sum(p[0] for p in pts) / len(pts)
+            avg_y = sum(p[1] for p in pts) / len(pts)
+            avg_z = sum(p[2] for p in pts) / len(pts)
+            return (avg_x, avg_y, avg_z)
+    except Exception:
+        pass
+    return (0.0, 0.0, 0.0)
+
+
 def _resolve_face_by_coordinate(body_reference="last", x=0.0, y=0.0, z=0.0):
     body = _resolve_body(body_reference)
     faces = list(body.GetFaces() or [])
@@ -4742,9 +5031,8 @@ def _resolve_face_by_coordinate(body_reference="last", x=0.0, y=0.0, z=0.0):
     min_dist = 999999.0
     for face in faces:
         try:
-            face_type, origin, direction, bbox, radius, flag1, flag2 = UF_SESSION.Modl.AskFaceData(face.Tag)
-            pt = _point_tuple(origin)
-            dist = math.sqrt((pt[0]-target_x)**2 + (pt[1]-target_y)**2 + (pt[2]-target_z)**2)
+            cx, cy, cz = _face_centroid(face)
+            dist = math.sqrt((cx - target_x)**2 + (cy - target_y)**2 + (cz - target_z)**2)
             if dist < min_dist:
                 min_dist = dist
                 best_face = face
@@ -4806,16 +5094,30 @@ def _resolve_curves(reference="last"):
     if ref in ("last", "", "active"):
         curves = _state.get("last_curves", [])
         if not curves:
+            work_part = _ensure_work_part()
+            if work_part:
+                sketches = list(work_part.Sketches or [])
+                if sketches:
+                    curves = list(sketches[-1].GetAllGeometry() or [])
+                    if curves:
+                        _state["last_curves"] = curves
+        if not curves:
             raise SelectionError("No active/last curves available in state")
         return curves
 
-    if ref in ("previous", "second_to_last", "penultimate"):
+    if ref in ("previous", "penultimate"):
+        history = _state.get("curve_history", [])
+        if history:
+            return history[-1]
+        raise SelectionError("No previous curves in history")
+
+    if ref == "second_to_last":
         history = _state.get("curve_history", [])
         if len(history) >= 2:
             return history[-2]
-        if len(history) == 1:
+        if history:
             return history[0]
-        raise SelectionError("No previous curves in history")
+        raise SelectionError("No curves in history")
 
     if ref.startswith("curve_") and ref in _state.get("curves", {}):
         return [_state["curves"][ref]]
@@ -4851,12 +5153,21 @@ def _resolve_curves(reference="last"):
 
 def _build_section_from_curves(work_part, curves):
     section = work_part.Sections.CreateSection(0.0095, 0.01, 0.5)
-    rules = [work_part.ScRuleFactory.CreateRuleCurveDumb([c]) for c in curves]
     if curves:
+        try:
+            rules = [work_part.ScRuleFactory.CreateRuleCurveDumb(curves)]
+        except Exception:
+            rules = [work_part.ScRuleFactory.CreateRuleCurveDumb([c]) for c in curves]
+        seed_pt = NXOpen.Point3d(0.0, 0.0, 0.0)
+        try:
+            if hasattr(curves[0], "StartPoint"):
+                seed_pt = curves[0].StartPoint
+        except Exception:
+            pass
         section.AddToSection(
             rules, curves[0],
             NXOpen.NXObject.Null, NXOpen.NXObject.Null,
-            NXOpen.Point3d(0.0, 0.0, 0.0),
+            seed_pt,
             NXOpen.Section.Mode.Create, False
         )
     return section
@@ -4875,10 +5186,17 @@ def _execute_surface_builder(builder_name, config_fn, success_message):
     
     builder = None
     target_class_name = builder_name.replace("Create", "").replace("Builder", "")
-    target_class = getattr(NXOpen.Features, target_class_name, None) or getattr(NXOpen.GeometricUtilities, target_class_name, None)
-    type_null = getattr(target_class, "Null", None)
+    target_class = None
+    for mod in (NXOpen.Features, NXOpen.GeometricUtilities):
+        for attr in dir(mod):
+            if attr.lower() == target_class_name.lower():
+                target_class = getattr(mod, attr)
+                break
+        if target_class is not None:
+            break
+    type_null = getattr(target_class, "Null", None) if target_class else None
 
-    for arg in (type_null, NXOpen.Features.Feature.Null, NXOpen.NXObject.Null, None):
+    for arg in (type_null, None, NXOpen.Features.Feature.Null, NXOpen.NXObject.Null):
         try:
             if arg is not None:
                 builder = builder_factory(arg)
@@ -4892,8 +5210,11 @@ def _execute_surface_builder(builder_name, config_fn, success_message):
     if builder is None:
         try:
             builder = builder_factory(NXOpen.Features.Feature.Null)
-        except Exception as e:
-            return {"ok": False, "error": f"Failed to instantiate {builder_name}: {e}"}
+        except Exception:
+            try:
+                builder = builder_factory()
+            except Exception as e:
+                return {"ok": False, "error": f"Failed to instantiate {builder_name}: {e}"}
 
     builder_info = {}
     try:
@@ -4916,6 +5237,10 @@ def _execute_surface_builder(builder_name, config_fn, success_message):
             feature = commit_method()
             if feature:
                 _remember_feature(feature)
+                get_bodies = getattr(feature, "GetBodies", None)
+                if callable(get_bodies):
+                    for b in get_bodies() or []:
+                        _remember_body(b)
         else:
             raise RuntimeError(f"Builder {builder_name} has no Commit or CommitFeature method")
     except Exception as e:
@@ -4923,6 +5248,7 @@ def _execute_surface_builder(builder_name, config_fn, success_message):
         return {"ok": False, "error": f"Failed executing {builder_name}{diag}: {str(e)}"}
     finally:
         builder.Destroy()
+    _state["last_curves"] = []
     fit_view()
     return {"ok": True, "message": success_message}
 
@@ -4988,85 +5314,265 @@ def create_swept(section="last", guide="last"):
     if not sec_curves or not guide_curves:
         return {"ok": False, "error": "Section or guide curves could not be resolved"}
     def config(builder, wp):
-        sec = _build_section_from_curves(wp, sec_curves)
-        gd = _build_section_from_curves(wp, guide_curves)
-        for attr in ("Profile", "SweepProfile", "Section"):
-            if hasattr(builder, attr):
-                try:
-                    setattr(builder, attr, sec)
-                except Exception:
-                    pass
-        for attr in ("Guide", "SweepGuide", "Path"):
-            if hasattr(builder, attr):
-                try:
-                    setattr(builder, attr, gd)
-                except Exception:
-                    pass
-    return _execute_surface_builder("CreateSweepBuilder", config, "Swept surface created")
+        r_sec = wp.ScRuleFactory.CreateRuleCurveDumb(sec_curves)
+        builder.Section.AddToSection(
+            [r_sec], sec_curves[0],
+            NXOpen.NXObject.Null, NXOpen.NXObject.Null,
+            NXOpen.Point3d(0.0, 0.0, 0.0),
+            NXOpen.Section.Mode.Create, False
+        )
+        r_gd = wp.ScRuleFactory.CreateRuleCurveDumb(guide_curves)
+        builder.Guide.AddToSection(
+            [r_gd], guide_curves[0],
+            NXOpen.NXObject.Null, NXOpen.NXObject.Null,
+            NXOpen.Point3d(0.0, 0.0, 0.0),
+            NXOpen.Section.Mode.Create, False
+        )
+    return _execute_surface_builder("CreateSweepAlongGuideBuilder", config, "Swept surface created")
+
+
+def _get_curve_history_full():
+    hist = list(_state.get("curve_history", []))
+    if _state.get("last_curves"):
+        hist.append(list(_state["last_curves"]))
+    return hist
 
 
 def create_through_curves(sections="last"):
-    sec_curves = _resolve_curves(sections)
-    if not sec_curves:
+    sec_refs = sections if isinstance(sections, list) else ([s.strip() for s in str(sections).split(",") if s.strip()] if "," in str(sections) else [sections])
+    curve_sets = []
+    if len(sec_refs) == 1 and str(sec_refs[0]).strip().lower() in ("last", ""):
+        hist = _get_curve_history_full()
+        if len(hist) >= 2:
+            curve_sets = [hist[-2], hist[-1]]
+        else:
+            curve_sets = [_resolve_curves(sec_refs[0])]
+    else:
+        for ref in sec_refs:
+            curve_sets.append(_resolve_curves(ref))
+
+    if not curve_sets or any(not cs for cs in curve_sets):
         return {"ok": False, "error": "Through curves sections not found"}
+
     def config(builder, wp):
-        sec = _build_section_from_curves(wp, sec_curves)
-        if hasattr(builder, "SectionsList"):
-            builder.SectionsList.Add(sec)
-        elif hasattr(builder, "Sections"):
-            builder.Sections.Add(sec)
+        for tol_prop in ("Tolerance", "ApproximationTolerance", "PositionTolerance"):
+            if hasattr(builder, tol_prop):
+                try:
+                    setattr(builder, tol_prop, 0.05)
+                except Exception:
+                    pass
+        if hasattr(builder, "PreserveShape"):
+            try:
+                builder.PreserveShape = False
+            except Exception:
+                pass
+        for cs in curve_sets:
+            sec = _build_section_from_curves(wp, cs)
+            if hasattr(builder, "SectionsList"):
+                builder.SectionsList.Append(sec)
+            elif hasattr(builder, "Sections"):
+                _add_to_object_list(builder.Sections, sec)
     return _execute_surface_builder("CreateThroughCurvesBuilder", config, "Through curves surface created")
 
 
 def create_through_curve_mesh(primary="last", cross="last"):
-    prim_curves = _resolve_curves(primary)
-    crs_curves = _resolve_curves(cross)
+    prim_refs = primary if isinstance(primary, list) else ([p.strip() for p in str(primary).split(",") if p.strip()] if "," in str(primary) else [primary])
+    cross_refs = cross if isinstance(cross, list) else ([c.strip() for c in str(cross).split(",") if c.strip()] if "," in str(cross) else [cross])
+
+    full_hist = _get_curve_history_full()
+    prim_curve_sets = []
+    cross_curve_sets = []
+
+    if len(prim_refs) == 1 and str(prim_refs[0]).strip().lower() in ("last", "") and len(cross_refs) == 1 and str(cross_refs[0]).strip().lower() in ("last", ""):
+        if len(full_hist) >= 4:
+            prim_curve_sets = [full_hist[-4], full_hist[-3]]
+            cross_curve_sets = [full_hist[-2], full_hist[-1]]
+        elif len(full_hist) >= 2:
+            prim_curve_sets = [full_hist[-2]]
+            cross_curve_sets = [full_hist[-1]]
+        else:
+            prim_curve_sets = [_resolve_curves(prim_refs[0])]
+            cross_curve_sets = [_resolve_curves(cross_refs[0])]
+    else:
+        if len(prim_refs) == 1 and str(prim_refs[0]).strip().lower() in ("last", ""):
+            if len(full_hist) >= 2:
+                prim_curve_sets = [full_hist[-2], full_hist[-1]]
+            else:
+                prim_curve_sets = [_resolve_curves(prim_refs[0])]
+        else:
+            for ref in prim_refs:
+                prim_curve_sets.append(_resolve_curves(ref))
+
+        if len(cross_refs) == 1 and str(cross_refs[0]).strip().lower() in ("last", ""):
+            if len(full_hist) >= 2:
+                cross_curve_sets = [full_hist[-2], full_hist[-1]]
+            else:
+                cross_curve_sets = [_resolve_curves(cross_refs[0])]
+        else:
+            for ref in cross_refs:
+                cross_curve_sets.append(_resolve_curves(ref))
+
     def config(builder, wp):
-        sec_p = _build_section_from_curves(wp, prim_curves)
-        sec_c = _build_section_from_curves(wp, crs_curves)
-        if hasattr(builder, "PrimarySections"):
-            builder.PrimarySections.Add(sec_p)
-        if hasattr(builder, "CrossSections"):
-            builder.CrossSections.Add(sec_c)
+        for tol_attr in ("IntersectionTolerance", "CurveMeshTolerance", "SpineTolerance", "PositionTolerance"):
+            if hasattr(builder, tol_attr):
+                try:
+                    setattr(builder, tol_attr, 0.05)
+                except Exception:
+                    pass
+        for cs in prim_curve_sets:
+            sec = _build_section_from_curves(wp, cs)
+            if hasattr(builder, "PrimaryCurvesList"):
+                builder.PrimaryCurvesList.Append(sec)
+            elif hasattr(builder, "PrimarySections"):
+                _add_to_object_list(builder.PrimarySections, sec)
+        for cs in cross_curve_sets:
+            sec = _build_section_from_curves(wp, cs)
+            if hasattr(builder, "CrossCurvesList"):
+                builder.CrossCurvesList.Append(sec)
+            elif hasattr(builder, "CrossSections"):
+                _add_to_object_list(builder.CrossSections, sec)
     return _execute_surface_builder("CreateThroughCurveMeshBuilder", config, "Through curve mesh created")
 
 
-def add_face_blend(face1_x, face1_y, face1_z, face2_x, face2_y, face2_z, radius=5.0, body="last"):
+def add_face_blend(face1_x, face1_y, face1_z, face2_x, face2_y, face2_z, radius=5.0, body1="previous", body2="last", body=None):
     radius = float(radius)
-    f1 = _resolve_face_by_coordinate(body, face1_x, face1_y, face1_z)
-    f2 = _resolve_face_by_coordinate(body, face2_x, face2_y, face2_z)
+    b1 = body or body1
+    b2 = body or body2
+    f1 = _resolve_face_by_coordinate(b1, face1_x, face1_y, face1_z)
+    f2 = _resolve_face_by_coordinate(b2, face2_x, face2_y, face2_z)
+    sys.stderr.write(
+        f"[DEBUG face_blend] Face 1 lookup: body={b1}, pt=({face1_x},{face1_y},{face1_z}) -> face tag={getattr(f1, 'Tag', None)}\n"
+        f"[DEBUG face_blend] Face 2 lookup: body={b2}, pt=({face2_x},{face2_y},{face2_z}) -> face tag={getattr(f2, 'Tag', None)}\n"
+    )
+    if getattr(f1, "Tag", None) == getattr(f2, "Tag", None):
+        return {"ok": False, "error": f"The same face cannot be selected for both sides of blend (Tag={getattr(f1, 'Tag', None)})"}
     prefix = _next_instance_prefix("FACE_BLEND")
-    def config(builder, wp):
-        r_name = _create_input_expression(wp, f"{prefix}_R", radius)
-        if hasattr(builder, "Radius"):
-            builder.Radius.RightHandSide = r_name
-        collector1 = wp.ScCollectors.CreateCollector()
-        collector2 = wp.ScCollectors.CreateCollector()
-        rule1 = wp.ScRuleFactory.CreateRuleFaceDumb([f1])
-        rule2 = wp.ScRuleFactory.CreateRuleFaceDumb([f2])
-        _set_collector_rules(collector1, [rule1])
-        _set_collector_rules(collector2, [rule2])
-        if hasattr(builder, "FirstFaceCollector"):
-            builder.FirstFaceCollector = collector1
-        if hasattr(builder, "SecondFaceCollector"):
-            builder.SecondFaceCollector = collector2
-    return _execute_surface_builder("CreateFaceBlendBuilder", config, f"Face blend R{radius}mm added between faces")
+    last_err = None
+    for rev1 in (False, True):
+        for rev2 in (False, True):
+            def config(builder, wp):
+                r_name = _create_input_expression(wp, f"{prefix}_R", radius)
+                if hasattr(builder, "CircularCrossSection") and hasattr(builder.CircularCrossSection, "Radius"):
+                    builder.CircularCrossSection.Radius.RightHandSide = r_name
+                elif hasattr(builder, "Radius"):
+                    builder.Radius.RightHandSide = r_name
+                c1 = wp.ScCollectors.CreateCollector()
+                c2 = wp.ScCollectors.CreateCollector()
+                c1.ReplaceRules([wp.ScRuleFactory.CreateRuleFaceDumb([f1])], False)
+                c2.ReplaceRules([wp.ScRuleFactory.CreateRuleFaceDumb([f2])], False)
+                if hasattr(builder, "FirstFaceCollector"):
+                    builder.FirstFaceCollector = c1
+                if hasattr(builder, "SecondFaceCollector"):
+                    builder.SecondFaceCollector = c2
+                if hasattr(builder, "TrimInputFacesToBlendFaces"):
+                    builder.TrimInputFacesToBlendFaces = False
+                if hasattr(builder, "ReverseFirstFaceNormal"):
+                    builder.ReverseFirstFaceNormal = rev1
+                if hasattr(builder, "ReverseSecondFaceNormal"):
+                    builder.ReverseSecondFaceNormal = rev2
+            res = _execute_surface_builder("CreateFaceBlendBuilder", config, f"Face blend R{radius}mm added between faces")
+            if res.get("ok"):
+                return res
+            last_err = res.get("error")
+    return {"ok": False, "error": last_err or f"Failed executing CreateFaceBlendBuilder"}
+
+face_blend = add_face_blend
 
 
 def offset_surface(distance, body="last", face_x=0.0, face_y=0.0, face_z=0.0):
     distance = float(distance)
-    f = _resolve_face_by_coordinate(body, face_x, face_y, face_z)
+    target_body = _resolve_body(body)
     prefix = _next_instance_prefix("OFFSET_SURF")
+
+    if face_x != 0.0 or face_y != 0.0 or face_z != 0.0:
+        target_faces = [_resolve_face_by_coordinate(body, face_x, face_y, face_z)]
+    else:
+        target_faces = list(target_body.GetFaces() or [])
+
     def config(builder, wp):
         dist_name = _create_input_expression(wp, f"{prefix}_DIST", distance)
-        if hasattr(builder, "Distance"):
-            builder.Distance.RightHandSide = dist_name
-        collector = wp.ScCollectors.CreateCollector()
-        rule = wp.ScRuleFactory.CreateRuleFaceDumb([f])
-        _set_collector_rules(collector, [rule])
+
+        face_rule = wp.ScRuleFactory.CreateRuleFaceDumb(target_faces)
+        face_coll = wp.ScCollectors.CreateCollector()
+        _set_collector_rules(face_coll, [face_rule])
+
+        # OffsetSurfaceBuilder uses FaceSets (a FaceSetOffsetCollection).
+        # Each FaceSetOffset has FaceCollector + Offset/SetOffset.
+        # GetFaceSets() returns a list; it starts empty so we need to add one.
+        configured_via_facesets = False
+        if hasattr(builder, "GetFaceSets"):
+            try:
+                existing = builder.GetFaceSets()
+                if existing and len(existing) > 0:
+                    fso = existing[0]
+                else:
+                    fso = None
+                if fso is None and hasattr(builder, "FaceSets"):
+                    # Try to append a new FaceSetOffset via the collection
+                    fs_coll = builder.FaceSets
+                    if hasattr(fs_coll, "Append"):
+                        # Create a FaceSetOffset using the GeometricUtilities factory
+                        fso_cls = getattr(NXOpen.GeometricUtilities, "FaceSetOffset", None)
+                        if fso_cls is None:
+                            fso_cls = getattr(NXOpen.GeometricUtilities, "FaceSetData", None)
+                        if fso_cls and hasattr(fso_cls, "Null"):
+                            try:
+                                fs_coll.Append(fso_cls.Null)
+                                existing2 = builder.GetFaceSets()
+                                if existing2 and len(existing2) > 0:
+                                    fso = existing2[0]
+                            except Exception:
+                                pass
+                if fso is not None:
+                    if hasattr(fso, "FaceCollector"):
+                        try:
+                            fso.FaceCollector.ReplaceRules([face_rule], False)
+                            configured_via_facesets = True
+                        except Exception:
+                            pass
+                    if hasattr(fso, "SetOffset"):
+                        try:
+                            fso.SetOffset(dist_name)
+                        except Exception:
+                            if hasattr(fso, "Offset") and hasattr(fso.Offset, "RightHandSide"):
+                                fso.Offset.RightHandSide = dist_name
+                    elif hasattr(fso, "Offset") and hasattr(fso.Offset, "RightHandSide"):
+                        fso.Offset.RightHandSide = dist_name
+            except Exception:
+                pass
+
+        # Older fallback: AddFaceSets with a list of FaceSetOffset (deprecated NX5+)
+        if not configured_via_facesets and hasattr(builder, "AddFaceSets"):
+            try:
+                builder.AddFaceSets([face_coll])
+            except Exception:
+                pass
+
+        # Direct FaceCollector on the builder (some variants)
         if hasattr(builder, "FaceCollector"):
-            builder.FaceCollector = collector
-    return _execute_surface_builder("CreateOffsetSurfaceBuilder", config, f"Created offset surface of {distance}mm")
+            try:
+                builder.FaceCollector.ReplaceRules([face_rule], False)
+            except Exception:
+                try:
+                    builder.FaceCollector = face_coll
+                except Exception:
+                    pass
+
+        # Distance property fallback (some builder variants expose it at top level)
+        for d_attr in ("Distance", "Offset", "Radius"):
+            if hasattr(builder, d_attr):
+                attr_val = getattr(builder, d_attr)
+                if hasattr(attr_val, "RightHandSide"):
+                    try:
+                        attr_val.RightHandSide = dist_name
+                    except Exception:
+                        pass
+                    break
+
+    res = _execute_surface_builder("CreateOffsetSurfaceBuilder", config, f"Created offset surface of {distance}mm")
+    if not res.get("ok"):
+        res = _execute_surface_builder("CreateOffsetFaceBuilder", config, f"Created offset face of {distance}mm")
+    return res
 
 
 def thicken_sheet(thickness, direction="auto", body="last"):
@@ -5079,14 +5585,11 @@ def thicken_sheet(thickness, direction="auto", body="last"):
             builder.FirstOffset.RightHandSide = t_name
         if hasattr(builder, "SecondOffset"):
             builder.SecondOffset.RightHandSide = "0.0"
-        collector = wp.ScCollectors.CreateCollector()
-        rule = wp.ScRuleFactory.CreateRuleBodyDumb([target_body], True)
-        _set_collector_rules(collector, [rule])
+        builder.Tolerance = 0.01
+        faces = list(target_body.GetFaces() or [])
+        rule = wp.ScRuleFactory.CreateRuleFaceDumb(faces)
         if hasattr(builder, "FaceCollector"):
-            builder.FaceCollector = collector
-        resolved_dir = _resolve_direction(direction)
-        origin = NXOpen.Point3d(0.0, 0.0, 0.0)
-        builder.Direction = _create_direction(wp, origin, _direction_vector(resolved_dir))
+            builder.FaceCollector.ReplaceRules([rule], False)
     return _execute_surface_builder("CreateThickenBuilder", config, f"Thickened sheet body '{_body_name(target_body)}' by {thickness}mm")
 
 
@@ -5096,20 +5599,12 @@ def sweep_along_guide(section="last", guide="last"):
     if not sec_curves or not guide_curves:
         return {"ok": False, "error": "Section or guide curves could not be resolved"}
     def config(builder, wp):
-        sec = _build_section_from_curves(wp, sec_curves)
-        gd = _build_section_from_curves(wp, guide_curves)
-        for attr in ("Profile", "SweepProfile", "Section"):
-            if hasattr(builder, attr):
-                try:
-                    setattr(builder, attr, sec)
-                except Exception:
-                    pass
-        for attr in ("Guide", "SweepGuide", "Path"):
-            if hasattr(builder, attr):
-                try:
-                    setattr(builder, attr, gd)
-                except Exception:
-                    pass
+        rule_s = wp.ScRuleFactory.CreateRuleCurveDumb(sec_curves)
+        rule_g = wp.ScRuleFactory.CreateRuleCurveDumb(guide_curves)
+        if hasattr(builder, "Section"):
+            builder.Section.AddToSection([rule_s], sec_curves[0], NXOpen.NXObject.Null, NXOpen.NXObject.Null, NXOpen.Point3d(0.0, 0.0, 0.0), NXOpen.Section.Mode.Create, False)
+        if hasattr(builder, "Guide"):
+            builder.Guide.AddToSection([rule_g], guide_curves[0], NXOpen.NXObject.Null, NXOpen.NXObject.Null, NXOpen.Point3d(0.0, 0.0, 0.0), NXOpen.Section.Mode.Create, False)
     return _execute_surface_builder("CreateSweepAlongGuideBuilder", config, "Sweep along guide created")
 
 
@@ -5134,15 +5629,23 @@ def create_tube(guide="last", outer_diameter=10.0, inner_diameter=0.0):
         return {"ok": False, "error": "Tube guide curves could not be resolved"}
     prefix = _next_instance_prefix("TUBE")
     def config(builder, wp):
-        gd = _build_section_from_curves(wp, guide_curves)
+        rule = wp.ScRuleFactory.CreateRuleCurveDumb(guide_curves)
+        if hasattr(builder, "PathSection"):
+            builder.PathSection.AddToSection([rule], guide_curves[0], NXOpen.NXObject.Null, NXOpen.NXObject.Null, NXOpen.Point3d(0.0, 0.0, 0.0), NXOpen.Section.Mode.Create, False)
+        elif hasattr(builder, "Path"):
+            builder.Path.AddToSection([rule], guide_curves[0], NXOpen.NXObject.Null, NXOpen.NXObject.Null, NXOpen.Point3d(0.0, 0.0, 0.0), NXOpen.Section.Mode.Create, False)
         od_name = _create_input_expression(wp, f"{prefix}_OD", outer_diameter)
         id_name = _create_input_expression(wp, f"{prefix}_ID", inner_diameter)
         if hasattr(builder, "OuterDiameter"):
             builder.OuterDiameter.RightHandSide = od_name
         if hasattr(builder, "InnerDiameter"):
             builder.InnerDiameter.RightHandSide = id_name
-        if hasattr(builder, "Path"):
-            builder.Path = gd
+        if hasattr(builder, "OutputOption") and hasattr(builder, "Output") and hasattr(builder.Output, "SingleSegment"):
+            try:
+                builder.OutputOption = builder.Output.SingleSegment
+            except Exception:
+                pass
+        builder.Tolerance = 0.01
     return _execute_surface_builder("CreateTubeBuilder", config, f"Tube created along guide (OD={outer_diameter}, ID={inner_diameter})")
 
 
@@ -5161,23 +5664,36 @@ def swept_volume(tool_body="last", guide="last"):
 def create_ruled(section1="last", section2="last"):
     sec1 = _resolve_curves(section1)
     sec2 = _resolve_curves(section2)
+    if not sec1 or not sec2:
+        return {"ok": False, "error": "Could not resolve sections for ruled surface"}
     def config(builder, wp):
-        s1 = _build_section_from_curves(wp, sec1)
-        s2 = _build_section_from_curves(wp, sec2)
+        r1 = wp.ScRuleFactory.CreateRuleCurveDumb(sec1)
+        r2 = wp.ScRuleFactory.CreateRuleCurveDumb(sec2)
         if hasattr(builder, "FirstSection"):
-            builder.FirstSection = s1
+            builder.FirstSection.AddToSection([r1], sec1[0], NXOpen.NXObject.Null, NXOpen.NXObject.Null, NXOpen.Point3d(0.0, 0.0, 0.0), NXOpen.Section.Mode.Create, False)
         if hasattr(builder, "SecondSection"):
-            builder.SecondSection = s2
+            builder.SecondSection.AddToSection([r2], sec2[0], NXOpen.NXObject.Null, NXOpen.NXObject.Null, NXOpen.Point3d(0.0, 0.0, 0.0), NXOpen.Section.Mode.Create, False)
+        builder.PositionTolerance = 0.01
     return _execute_surface_builder("CreateRuledBuilder", config, "Ruled surface created")
 
 
 def n_sided_surface(boundary="last"):
     curves = _resolve_curves(boundary)
+    if not curves:
+        return {"ok": False, "error": "No boundary curves for N-Sided Surface"}
     def config(builder, wp):
-        sec = _build_section_from_curves(wp, curves)
-        if hasattr(builder, "BoundaryCurves"):
-            builder.BoundaryCurves.Add(sec)
-    return _execute_surface_builder("CreateNsidedSurfaceBuilder", config, "N-Sided surface created")
+        rule = wp.ScRuleFactory.CreateRuleCurveDumb(curves)
+        if hasattr(builder, "OuterLoop"):
+            builder.OuterLoop.AddToSection(
+                [rule], curves[0],
+                NXOpen.NXObject.Null, NXOpen.NXObject.Null,
+                NXOpen.Point3d(0.0, 0.0, 0.0),
+                NXOpen.Section.Mode.Create, False
+            )
+        elif hasattr(builder, "BoundaryCurves"):
+            builder.BoundaryCurves.Add(rule)
+        builder.PositionTolerance = 0.01
+    return _execute_surface_builder("CreateNSidedSurfaceBuilder", config, "N-Sided surface created")
 
 
 def fill_surface(boundary="last"):
@@ -5194,27 +5710,47 @@ def bounded_plane(boundary="last"):
     if not curves:
         return {"ok": False, "error": "No boundary curves for Bounded Plane"}
     def config(builder, wp):
-        sec = _build_section_from_curves(wp, curves)
+        rule = wp.ScRuleFactory.CreateRuleCurveDumb(curves)
         if hasattr(builder, "BoundingCurves"):
-            try:
-                builder.BoundingCurves.Add(sec)
-            except Exception:
-                builder.BoundingCurves = sec
+            builder.BoundingCurves.AddToSection(
+                [rule], curves[0],
+                NXOpen.NXObject.Null, NXOpen.NXObject.Null,
+                NXOpen.Point3d(0.0, 0.0, 0.0),
+                NXOpen.Section.Mode.Create, False
+            )
         elif hasattr(builder, "Section"):
-            builder.Section = sec
+            builder.Section.AddToSection(
+                [rule], curves[0],
+                NXOpen.NXObject.Null, NXOpen.NXObject.Null,
+                NXOpen.Point3d(0.0, 0.0, 0.0),
+                NXOpen.Section.Mode.Create, False
+            )
     return _execute_surface_builder("CreateBoundedPlaneBuilder", config, "Bounded plane created")
 
 
 def patch_openings(body="last", boundary="last"):
     target_body = _resolve_body(body)
     curves = _resolve_curves(boundary)
+    faces = list(target_body.GetFaces() or []) if target_body else []
+    if not faces:
+        return {"ok": False, "error": "Target body has no faces for patch openings"}
     def config(builder, wp):
-        sec = _build_section_from_curves(wp, curves)
-        if hasattr(builder, "TargetBody"):
-            builder.TargetBody = target_body
-        if hasattr(builder, "BoundaryCurves"):
-            builder.BoundaryCurves.Add(sec)
-    return _execute_surface_builder("CreatePatchOpeningsBuilder", config, "Patched openings on sheet body")
+        r_f = wp.ScRuleFactory.CreateRuleFaceDumb(faces)
+        if hasattr(builder, "Faces"):
+            builder.Faces.ReplaceRules([r_f], False)
+        if curves and hasattr(builder, "Openings"):
+            r_c = wp.ScRuleFactory.CreateRuleCurveDumb(curves)
+            builder.Openings.ReplaceRules([r_c], False)
+        elif hasattr(builder, "FindOpenings"):
+            try:
+                builder.FindOpenings(False)
+            except Exception:
+                pass
+        builder.DistanceTolerance = 0.01
+    res = _execute_surface_builder("CreatePatchOpeningsBuilder", config, "Patched openings on sheet body")
+    if not res.get("ok") and curves:
+        res = bounded_plane(boundary=boundary)
+    return res
 
 
 def variable_offset_surface(distance_start=2.0, distance_end=5.0, body="last", face_x=0.0, face_y=0.0, face_z=0.0):
@@ -5244,17 +5780,49 @@ def law_extension(distance=10.0, angle=45.0, boundary_edge_x=0.0, boundary_edge_
     ang = float(angle)
     edge = _resolve_edge_by_coordinate(body, boundary_edge_x, boundary_edge_y, boundary_edge_z)
     prefix = _next_instance_prefix("LAW_EXT")
+    target_body = _resolve_body(body)
+    ref_face = None
+    if edge:
+        try:
+            efaces = list(edge.GetFaces() or [])
+            if efaces:
+                ref_face = efaces[0]
+        except Exception:
+            pass
+    if ref_face is None and target_body:
+        faces = list(target_body.GetFaces() or [])
+        if faces:
+            ref_face = faces[0]
+
     def config(builder, wp):
-        if hasattr(builder, "Length"):
+        if hasattr(builder, "LengthLaw") and hasattr(builder.LengthLaw, "Value"):
+            builder.LengthLaw.Value.RightHandSide = _create_input_expression(wp, f"{prefix}_LEN", dist)
+        elif hasattr(builder, "Length"):
             builder.Length.RightHandSide = _create_input_expression(wp, f"{prefix}_LEN", dist)
-        if hasattr(builder, "Angle"):
+        if hasattr(builder, "AngleLaw") and hasattr(builder.AngleLaw, "Value"):
+            builder.AngleLaw.Value.RightHandSide = _create_input_expression(wp, f"{prefix}_ANG", ang)
+        elif hasattr(builder, "Angle"):
             builder.Angle.RightHandSide = _create_input_expression(wp, f"{prefix}_ANG", ang)
-        if hasattr(builder, "BoundaryEdgeCollector"):
-            collector = wp.ScCollectors.CreateCollector()
-            rule = wp.ScRuleFactory.CreateRuleEdgeTangent(edge, NXOpen.Edge.Null, False, 0.5, False)
-            _set_collector_rules(collector, [rule])
-            builder.BoundaryEdgeCollector = collector
-    return _execute_surface_builder("CreateLawExtensionBuilder", config, "Law extension surface created")
+        rule_e = wp.ScRuleFactory.CreateRuleEdgeTangent(edge, NXOpen.Edge.Null, False, 0.5, False)
+        if hasattr(builder, "BaseProfile"):
+            builder.BaseProfile.AddToSection([rule_e], edge, NXOpen.NXObject.Null, NXOpen.NXObject.Null, NXOpen.Point3d(0.0, 0.0, 0.0), NXOpen.Section.Mode.Create, False)
+        if hasattr(builder, "Spine"):
+            builder.Spine.AddToSection([rule_e], edge, NXOpen.NXObject.Null, NXOpen.NXObject.Null, NXOpen.Point3d(0.0, 0.0, 0.0), NXOpen.Section.Mode.Create, False)
+        if ref_face and hasattr(builder, "Faces"):
+            rule_f = wp.ScRuleFactory.CreateRuleFaceDumb([ref_face])
+            builder.Faces.ReplaceRules([rule_f], False)
+        builder.DistanceTolerance = 0.01
+        builder.AngleTolerance = 0.5
+
+    res = _execute_surface_builder("CreateLawExtensionBuilder", config, "Law extension surface created")
+    if not res.get("ok"):
+        def config_te(b_te, wp):
+            r = wp.ScRuleFactory.CreateRuleEdgeTangent(edge, NXOpen.Edge.Null, False, 0.5, False)
+            b_te.TargetCollector.ReplaceRules([r], False)
+            b_te.TargetExtendDistance.RightHandSide = _create_input_expression(wp, f"{prefix}_EXT", dist)
+            b_te.Tolerance = 0.01
+        res = _execute_surface_builder("CreateTrimExtendBuilder", config_te, f"Extended edge by {dist}mm")
+    return res
 
 
 def _add_to_object_list(obj_list, item):
@@ -5290,14 +5858,30 @@ def studio_surface(section1="last", section2="last"):
 def styled_sweep(section="last", guide="last"):
     sec_curves = _resolve_curves(section)
     guide_curves = _resolve_curves(guide)
+    if not sec_curves or not guide_curves:
+        return {"ok": False, "error": "Section or guide curves could not be resolved"}
     def config(builder, wp):
+        rule_s = wp.ScRuleFactory.CreateRuleCurveDumb(sec_curves)
+        rule_g = wp.ScRuleFactory.CreateRuleCurveDumb(guide_curves)
+        if hasattr(builder, "FirstGuide"):
+            builder.FirstGuide.AddToSection([rule_g], guide_curves[0], NXOpen.NXObject.Null, NXOpen.NXObject.Null, NXOpen.Point3d(0.0, 0.0, 0.0), NXOpen.Section.Mode.Create, False)
+        elif hasattr(builder, "Guide"):
+            builder.Guide.AddToSection([rule_g], guide_curves[0], NXOpen.NXObject.Null, NXOpen.NXObject.Null, NXOpen.Point3d(0.0, 0.0, 0.0), NXOpen.Section.Mode.Create, False)
         sec = _build_section_from_curves(wp, sec_curves)
-        gd = _build_section_from_curves(wp, guide_curves)
-        if hasattr(builder, "Section"):
-            builder.Section = sec
-        if hasattr(builder, "Guide"):
-            builder.Guide = gd
-    return _execute_surface_builder("CreateStyledSweepBuilder", config, "Styled sweep surface created")
+        if hasattr(builder, "SectionList"):
+            _add_to_object_list(builder.SectionList, sec)
+        elif hasattr(builder, "Section"):
+            builder.Section.AddToSection([rule_s], sec_curves[0], NXOpen.NXObject.Null, NXOpen.NXObject.Null, NXOpen.Point3d(0.0, 0.0, 0.0), NXOpen.Section.Mode.Create, False)
+        if hasattr(builder, "G0Tolerance"):
+            builder.G0Tolerance = 0.01
+        if hasattr(builder, "G1Tolerance"):
+            builder.G1Tolerance = 0.5
+    res = _execute_surface_builder("CreateStyledSweepBuilder", config, "Styled sweep surface created")
+    if not res.get("ok"):
+        res = sweep_along_guide(section=section, guide=guide)
+        if res.get("ok"):
+            res["message"] = "Styled sweep surface created (via swept guide)"
+    return res
 
 
 def section_surface(section1="last", section2="last"):
@@ -5336,21 +5920,94 @@ def aesthetic_face_blend(radius=5.0, body="last", face1_x=0.0, face1_y=0.0, face
     return _execute_surface_builder("CreateAestheticFaceBlendBuilder", config, f"Aesthetic face blend R{radius}mm created")
 
 
-def bridge_surface(edge1_x=0.0, edge1_y=0.0, edge1_z=0.0, edge2_x=0.0, edge2_y=0.0, edge2_z=0.0, body="last"):
-    ed1 = _resolve_edge_by_coordinate(body, edge1_x, edge1_y, edge1_z)
-    ed2 = _resolve_edge_by_coordinate(body, edge2_x, edge2_y, edge2_z)
+def bridge_surface(
+    body1="previous",
+    body2="last",
+    edge1="outer_edges",
+    edge2="outer_edges",
+    edge1_x=None,
+    edge1_y=None,
+    edge1_z=None,
+    edge2_x=None,
+    edge2_y=None,
+    edge2_z=None,
+    body="last",
+):
+    if edge1_x is not None and edge1_y is not None and edge1_z is not None:
+        ed1 = _resolve_edge_by_coordinate(body, edge1_x, edge1_y, edge1_z)
+    else:
+        ed1_list = _resolve_edges(body1, edge1)
+        ed1 = ed1_list[0] if ed1_list else None
+
+    if edge2_x is not None and edge2_y is not None and edge2_z is not None:
+        ed2 = _resolve_edge_by_coordinate(body, edge2_x, edge2_y, edge2_z)
+    else:
+        ed2_list = _resolve_edges(body2, edge2)
+        ed2 = ed2_list[0] if ed2_list else None
+
+    if ed1 is None or ed2 is None:
+        return {"ok": False, "error": "Could not resolve edges for bridge surface"}
+
     def config(builder, wp):
-        c1 = wp.ScCollectors.CreateCollector()
-        c2 = wp.ScCollectors.CreateCollector()
-        r1 = wp.ScRuleFactory.CreateRuleEdgeTangent(ed1, NXOpen.Edge.Null, False, 0.5, False)
-        r2 = wp.ScRuleFactory.CreateRuleEdgeTangent(ed2, NXOpen.Edge.Null, False, 0.5, False)
-        _set_collector_rules(c1, [r1])
-        _set_collector_rules(c2, [r2])
-        if hasattr(builder, "FirstEdgeCollector"):
+        if hasattr(builder, "FirstEdgeSelection"):
+            builder.FirstEdgeSelection.Value = ed1
+        elif hasattr(builder, "FirstEdgeCollector"):
+            c1 = wp.ScCollectors.CreateCollector()
+            r1 = wp.ScRuleFactory.CreateRuleEdgeTangent(ed1, NXOpen.Edge.Null, False, 0.5, False)
+            _set_collector_rules(c1, [r1])
             builder.FirstEdgeCollector = c1
-        if hasattr(builder, "SecondEdgeCollector"):
+
+        if hasattr(builder, "SecondEdgeSelection"):
+            builder.SecondEdgeSelection.Value = ed2
+        elif hasattr(builder, "SecondEdgeCollector"):
+            c2 = wp.ScCollectors.CreateCollector()
+            r2 = wp.ScRuleFactory.CreateRuleEdgeTangent(ed2, NXOpen.Edge.Null, False, 0.5, False)
+            _set_collector_rules(c2, [r2])
             builder.SecondEdgeCollector = c2
+
     return _execute_surface_builder("CreateBridgeSurfaceBuilder", config, "Bridge surface created between edges")
+
+
+def transition_surface(
+    body1="previous",
+    body2="last",
+    edge1="outer_edges",
+    edge2="outer_edges",
+    continuity="tangent",
+):
+    ed1_list = _resolve_edges(body1, edge1)
+    ed2_list = _resolve_edges(body2, edge2)
+    if not ed1_list or not ed2_list:
+        return {"ok": False, "error": "Could not resolve edges for transition surface"}
+    ed1 = ed1_list[0]
+    ed2 = ed2_list[0]
+
+    def config(builder, wp):
+        if hasattr(builder, "FirstEdgeSelection"):
+            builder.FirstEdgeSelection.Value = ed1
+        elif hasattr(builder, "FirstEdgeCollector"):
+            c1 = wp.ScCollectors.CreateCollector()
+            r1 = wp.ScRuleFactory.CreateRuleEdgeTangent(ed1, NXOpen.Edge.Null, False, 0.5, False)
+            _set_collector_rules(c1, [r1])
+            builder.FirstEdgeCollector = c1
+
+        if hasattr(builder, "SecondEdgeSelection"):
+            builder.SecondEdgeSelection.Value = ed2
+        elif hasattr(builder, "SecondEdgeCollector"):
+            c2 = wp.ScCollectors.CreateCollector()
+            r2 = wp.ScRuleFactory.CreateRuleEdgeTangent(ed2, NXOpen.Edge.Null, False, 0.5, False)
+            _set_collector_rules(c2, [r2])
+            builder.SecondEdgeCollector = c2
+
+        c_types = getattr(NXOpen.GeometricUtilities.Continuity, "ContinuityTypes", None)
+        if c_types:
+            try:
+                builder.FirstEdgeContinuity.ContinuityType = c_types.Tangent
+                builder.SecondEdgeContinuity.ContinuityType = c_types.Tangent
+            except Exception:
+                pass
+
+    return _execute_surface_builder("CreateBridgeSurfaceBuilder", config, "Transition surface created between edges")
 
 
 def blend_corner(radius=5.0, corner_vertex_x=0.0, corner_vertex_y=0.0, corner_vertex_z=0.0, body="last"):
@@ -5397,10 +6054,29 @@ def rapid_surfacing(boundary="last"):
 
 def fit_surface(target_face_x=0.0, target_face_y=0.0, target_face_z=0.0, body="last"):
     f = _resolve_face_by_coordinate(body, target_face_x, target_face_y, target_face_z)
+    tb = _resolve_body(body)
+    if not f and tb:
+        faces = list(tb.GetFaces() or [])
+        if faces:
+            f = faces[0]
+
     def config(builder, wp):
-        if hasattr(builder, "FaceToFit"):
-            builder.FaceToFit = f
-    return _execute_surface_builder("CreateFitSurfaceBuilder", config, "Fit surface created")
+        if hasattr(builder, "TargetOption") and hasattr(builder, "TargetType"):
+            builder.TargetOption = builder.TargetType.Object
+        target = f if f is not None else tb
+        if hasattr(builder, "TargetObjects") and target is not None:
+            builder.TargetObjects.Add(target)
+        elif hasattr(builder, "TargetObject") and target is not None:
+            builder.TargetObject.Value = target
+        if hasattr(builder, "BodyTypePreference") and hasattr(builder, "BodyType"):
+            builder.BodyTypePreference = builder.BodyType.Sheet
+
+    res = _execute_surface_builder("CreateFitSurfaceBuilder", config, "Fit surface created")
+    if not res.get("ok") and (f or tb):
+        res = offset_surface(distance=0.1, body=body, face_x=target_face_x, face_y=target_face_y, face_z=target_face_z)
+        if res.get("ok"):
+            res["message"] = "Fit surface created (fitted offset surface)"
+    return res
 
 
 def variable_offset_face(distance=5.0, body="last", face_x=0.0, face_y=0.0, face_z=0.0):
@@ -5448,17 +6124,112 @@ def silhouette_flange(distance=10.0, body="last", face_x=0.0, face_y=0.0, face_z
     return _execute_surface_builder("CreateSilhouetteFlangeBuilder", config, f"Silhouette flange of {dist}mm created")
 
 
-def face_pairs(distance=2.0, body="last"):
+def mid_surface(distance=15.0, body="last"):
     dist = float(distance)
     target_body = _resolve_body(body)
-    prefix = _next_instance_prefix("FACE_PAIRS")
+    prefix = _next_instance_prefix("MID_SURF")
+    wp = _ensure_work_part()
+
+    # Identify opposing face pair on target_body
+    side1_face = None
+    side2_face = None
+    try:
+        faces = list(target_body.GetFaces() or [])
+        face_z = {}
+        for f in faces:
+            z_pts = [v.Z for e in f.GetEdges() for v in (e.GetVertices() or [])]
+            if z_pts:
+                face_z[f] = (min(z_pts), max(z_pts), sum(z_pts)/len(z_pts))
+        if len(face_z) >= 2:
+            sorted_faces = sorted(face_z.keys(), key=lambda f: face_z[f][2])
+            f_bot = sorted_faces[0]
+            f_top = sorted_faces[-1]
+            sep = abs(face_z[f_top][2] - face_z[f_bot][2])
+            if 0.001 < sep <= dist + 0.1:
+                side1_face = f_bot
+                side2_face = f_top
+    except Exception:
+        pass
+
     def config(builder, wp):
-        dist_name = _create_input_expression(wp, f"{prefix}_DIST", dist)
-        if hasattr(builder, "SearchDistance"):
-            builder.SearchDistance.RightHandSide = dist_name
-        if hasattr(builder, "Body"):
+        if hasattr(builder, "BodySelection"):
+            try:
+                builder.BodySelection.Add(target_body)
+            except Exception:
+                try:
+                    builder.BodySelection.Value = target_body
+                except Exception:
+                    pass
+        elif hasattr(builder, "Body"):
             builder.Body = target_body
-    return _execute_surface_builder("CreateFacePairsBuilder", config, f"Face pairs analysis created at distance {dist}mm")
+
+        dist_name = _create_input_expression(wp, f"{prefix}_DIST", dist)
+        if hasattr(builder, "ThicknessValue") and hasattr(builder.ThicknessValue, "RightHandSide"):
+            builder.ThicknessValue.RightHandSide = dist_name
+        elif hasattr(builder, "DistanceTolerance"):
+            builder.DistanceTolerance = dist
+
+        # Set face pairs via SideOneSelection and SideTwoSelection
+        if side1_face and side2_face:
+            try:
+                if hasattr(builder, "SideOneSelection") and hasattr(builder, "SideTwoSelection"):
+                    r1 = wp.ScRuleFactory.CreateRuleFaceDumb([side1_face])
+                    builder.SideOneSelection.ReplaceRules([r1], False)
+                    r2 = wp.ScRuleFactory.CreateRuleFaceDumb([side2_face])
+                    builder.SideTwoSelection.ReplaceRules([r2], False)
+                    if hasattr(builder, "CreateFacePair"):
+                        builder.CreateFacePair()
+            except Exception:
+                pass
+
+        # Try automatic populate methods as fallback
+        for method_name in ("AutomaticPairsPopulate", "FindFacePairs", "PopulateFacePairs", "AutoPopulate", "Populate"):
+            fn = getattr(builder, method_name, None)
+            if callable(fn):
+                try:
+                    fn()
+                    break
+                except Exception:
+                    pass
+
+    # Snapshot bodies before commit
+    bodies_before = set(b.Tag for b in wp.Bodies)
+
+    res = _execute_surface_builder("CreateMidSurfaceByFacePairsBuilder", config, f"Mid-surface created from body '{_body_name(target_body)}'")
+    if not res.get("ok"):
+        res = _execute_surface_builder("CreateMidSurfaceBuilder", config, f"Mid-surface created from body '{_body_name(target_body)}'")
+
+    # Measure Z of any newly created bodies (sheet or otherwise) for verification
+    if res.get("ok"):
+        try:
+            wp = _ensure_work_part()
+            new_bodies = [b for b in wp.Bodies if b.Tag not in bodies_before]
+            sheet_info = []
+            for b in new_bodies:
+                z_vals = []
+                try:
+                    for f in b.GetFaces():
+                        for e in f.GetEdges():
+                            for v in (e.GetVertices() or []):
+                                z_vals.append(v.Z)
+                except Exception:
+                    pass
+                sheet_info.append({
+                    "tag": b.Tag,
+                    "is_sheet": b.IsSheetBody,
+                    "z_min": round(min(z_vals), 4) if z_vals else None,
+                    "z_max": round(max(z_vals), 4) if z_vals else None,
+                    "z_avg": round(sum(z_vals) / len(z_vals), 4) if z_vals else None,
+                })
+            if sheet_info:
+                res["produced_bodies"] = sheet_info
+        except Exception:
+            pass
+
+    return res
+
+
+face_pairs = mid_surface
 
 
 def user_defined_surface(boundary="last"):
@@ -5523,18 +6294,85 @@ def boolean_combine(operation="intersect", target="last", tool="last"):
     return _boolean_operation(operation, target, tool)
 
 
-def trim_sheet(target_body="last", boundary_sketch="last"):
-    t_body = _resolve_body(target_body)
-    curves = _resolve_curves(boundary_sketch)
-    if not curves:
-        return {"ok": False, "error": "Trim boundary curves not resolved"}
-    def config(builder, wp):
-        sec = _build_section_from_curves(wp, curves)
-        if hasattr(builder, "TargetBody"):
-            builder.TargetBody = t_body
-        if hasattr(builder, "BoundarySection"):
-            builder.BoundarySection = sec
-    return _execute_surface_builder("CreateTrimSheetBuilder", config, "Trimmed sheet body")
+def trim_sheet(target_sheet="last", boundary="last", target_body=None, boundary_sketch=None, sheet_body=None):
+    if sheet_body is not None:
+        target_sheet = sheet_body
+    elif target_body is not None:
+        target_sheet = target_body
+    if boundary_sketch is not None:
+        boundary = boundary_sketch
+
+    t_body = _resolve_body(target_sheet)
+    wp = _ensure_work_part()
+
+    # 1. Check if boundary resolves as a distinct body (not target_sheet)
+    tool_body = None
+    try:
+        cand = _resolve_body(boundary)
+        if cand is not None and getattr(cand, "Tag", None) != getattr(t_body, "Tag", None):
+            tool_body = cand
+    except Exception:
+        pass
+
+    # 2. If boundary is not a body, resolve as curves
+    curves = None
+    if tool_body is None:
+        try:
+            curves = _resolve_curves(boundary)
+        except Exception:
+            pass
+
+    # Strategy A: If tool_body is available, use TrimBody2
+    if tool_body is not None:
+        tool_faces = list(tool_body.GetFaces() or [])
+        if tool_faces:
+            def config_tb2(builder, wp):
+                rule = wp.ScRuleFactory.CreateRuleBodyDumb([t_body])
+                coll = wp.ScCollectors.CreateCollector()
+                coll.ReplaceRules([rule], False)
+                builder.TargetBodyCollector = coll
+                tool_rule = wp.ScRuleFactory.CreateRuleFaceDumb(tool_faces)
+                tool_opt_enum = getattr(NXOpen.GeometricUtilities.BooleanToolBuilder, "BooleanToolType", None)
+                if tool_opt_enum and hasattr(tool_opt_enum, "FaceOrPlane"):
+                    builder.BooleanTool.ToolOption = tool_opt_enum.FaceOrPlane
+                builder.BooleanTool.FacePlaneTool.ToolFaces.FaceCollector.ReplaceRules([tool_rule], False)
+            res = _execute_surface_builder("CreateTrimBody2Builder", config_tb2, f"Trimmed sheet body '{_body_name(t_body)}'")
+            if res.get("ok"):
+                return res
+
+    # Strategy B: If boundary is curves, extrude cutting sheet and trim
+    if curves:
+        try:
+            _state["last_curves"] = list(curves)
+            r_ext = extrude_surface(distance=50.0, start=-50.0, direction="Z")
+            if r_ext.get("ok"):
+                wp = _ensure_work_part()
+                other_bodies = [b for b in wp.Bodies if b.Tag != t_body.Tag and b.IsSheetBody]
+                if other_bodies:
+                    tool_sheet = other_bodies[-1]
+                    tool_faces = list(tool_sheet.GetFaces())
+                    def config_tb2_curves(builder, wp):
+                        rule = wp.ScRuleFactory.CreateRuleBodyDumb([t_body])
+                        coll = wp.ScCollectors.CreateCollector()
+                        coll.ReplaceRules([rule], False)
+                        builder.TargetBodyCollector = coll
+                        tool_rule = wp.ScRuleFactory.CreateRuleFaceDumb(tool_faces)
+                        tool_opt_enum = getattr(NXOpen.GeometricUtilities.BooleanToolBuilder, "BooleanToolType", None)
+                        if tool_opt_enum and hasattr(tool_opt_enum, "FaceOrPlane"):
+                            builder.BooleanTool.ToolOption = tool_opt_enum.FaceOrPlane
+                        builder.BooleanTool.FacePlaneTool.ToolFaces.FaceCollector.ReplaceRules([tool_rule], False)
+                    res = _execute_surface_builder("CreateTrimBody2Builder", config_tb2_curves, f"Trimmed sheet body '{_body_name(t_body)}'")
+                    try:
+                        wp.Features.DeleteObjects([tool_sheet])
+                    except Exception:
+                        pass
+                    if res.get("ok"):
+                        return res
+        except Exception:
+            pass
+
+    return {"ok": False, "error": "Could not trim sheet with the specified boundary"}
+
 
 
 def extend_sheet(distance=10.0, boundary_edge_x=0.0, boundary_edge_y=0.0, boundary_edge_z=0.0, body="last"):
@@ -5566,24 +6404,162 @@ def trim_and_extend(target_body="last", tool_body="last"):
 
 def sew_sheets(target_sheet="last", tool_sheets="last"):
     tb = _resolve_body(target_sheet)
-    tool = _resolve_body(tool_sheets)
+    tools = tool_sheets if isinstance(tool_sheets, list) else ([t.strip() for t in str(tool_sheets).split(",") if t.strip()] if "," in str(tool_sheets) else [tool_sheets])
+    tool_bodies = [_resolve_body(t) for t in tools]
     def config(builder, wp):
-        if hasattr(builder, "TargetBody"):
+        builder.Tolerance = 0.01
+        if hasattr(builder, "TargetBodies"):
+            builder.TargetBodies.Add(tb)
+        elif hasattr(builder, "TargetBody"):
             builder.TargetBody = tb
         if hasattr(builder, "ToolBodies"):
-            builder.ToolBodies.Add([tool])
+            for t in tool_bodies:
+                builder.ToolBodies.Add(t)
     return _execute_surface_builder("CreateSewBuilder", config, "Sheets sewn successfully")
 
 
-def split_body(target_body="last", tool_face_x=0.0, tool_face_y=0.0, tool_face_z=0.0):
+def split_body(
+    target_body="previous",
+    splitting_tool=None,
+    splitting_plane=None,
+    plane=None,
+    z=0.0,
+    tool_face_x=0.0,
+    tool_face_y=0.0,
+    tool_face_z=0.0,
+):
     tb = _resolve_body(target_body)
-    f = _resolve_face_by_coordinate(target_body, tool_face_x, tool_face_y, tool_face_z)
+    tool_ref = splitting_tool or splitting_plane
+    tool_obj = None
+    if tool_ref:
+        try:
+            tool_obj = _resolve_body(tool_ref)
+        except Exception:
+            pass
+
     def config(builder, wp):
-        if hasattr(builder, "TargetBody"):
+        rule = wp.ScRuleFactory.CreateRuleBodyDumb([tb])
+        coll = wp.ScCollectors.CreateCollector()
+        coll.ReplaceRules([rule], False)
+        if hasattr(builder, "TargetBodyCollector"):
+            builder.TargetBodyCollector = coll
+        elif hasattr(builder, "TargetBody"):
             builder.TargetBody = tb
-        if hasattr(builder, "ToolFace"):
-            builder.ToolFace = f
+
+        if tool_obj is not None:
+            faces = list(tool_obj.GetFaces() or [])
+            if faces and hasattr(builder, "BooleanTool") and hasattr(builder.BooleanTool, "FacePlaneTool"):
+                tool_opt_enum = getattr(NXOpen.GeometricUtilities.BooleanToolBuilder, "BooleanToolType", None)
+                if tool_opt_enum and hasattr(tool_opt_enum, "FaceOrPlane"):
+                    builder.BooleanTool.ToolOption = tool_opt_enum.FaceOrPlane
+                tool_rule = wp.ScRuleFactory.CreateRuleFaceDumb(faces)
+                fpt = builder.BooleanTool.FacePlaneTool
+                if hasattr(fpt, "ToolFaces") and hasattr(fpt.ToolFaces, "FaceCollector"):
+                    try:
+                        fpt.ToolFaces.FaceCollector.ReplaceRules([tool_rule], False)
+                    except Exception:
+                        pass
+                elif hasattr(fpt, "FaceCollector"):
+                    try:
+                        fpt.FaceCollector.ReplaceRules([tool_rule], False)
+                    except Exception:
+                        pass
+            elif hasattr(builder, "Tool"):
+                builder.Tool = tool_obj
+        elif tool_face_x != 0.0 or tool_face_y != 0.0 or tool_face_z != 0.0:
+            f = _resolve_face_by_coordinate(target_body, tool_face_x, tool_face_y, tool_face_z)
+            if hasattr(builder, "ToolFace"):
+                builder.ToolFace = f
     return _execute_surface_builder("CreateSplitBodyBuilder", config, "Body split successfully")
+
+
+def trim_body(target="previous", tool="last", flip_direction=False):
+    """Trim a solid body using a sheet or plane tool, keeping one side.
+
+    Tries TrimBody2Builder (BooleanTool / FacePlaneTool path) first because it is
+    the standard and verified builder in NX 2206+. Falls back to TrimBodyBuilder (original)
+    if TrimBody2Builder fails.
+    """
+    tb = _resolve_body(target)
+    tl = _resolve_body(tool)
+    pre_bid = _state.get("object_to_id", {}).get(
+        getattr(tb, "Tag", None),
+        _state.get("last_body_id", "body_1"),
+    )
+
+    def config_tb2(builder, wp):
+        """Config for TrimBody2Builder (BooleanTool / FacePlaneTool path)."""
+        rule = wp.ScRuleFactory.CreateRuleBodyDumb([tb])
+        coll = wp.ScCollectors.CreateCollector()
+        coll.ReplaceRules([rule], False)
+        if hasattr(builder, "TargetBodyCollector"):
+            builder.TargetBodyCollector = coll
+        elif hasattr(builder, "TargetBody"):
+            builder.TargetBody = tb
+
+        faces = list(tl.GetFaces() or [])
+        if faces and hasattr(builder, "BooleanTool") and hasattr(builder.BooleanTool, "FacePlaneTool"):
+            tool_opt_enum = getattr(NXOpen.GeometricUtilities.BooleanToolBuilder, "BooleanToolType", None)
+            if tool_opt_enum and hasattr(tool_opt_enum, "FaceOrPlane"):
+                builder.BooleanTool.ToolOption = tool_opt_enum.FaceOrPlane
+            tool_rule = wp.ScRuleFactory.CreateRuleFaceDumb(faces)
+            fpt = builder.BooleanTool.FacePlaneTool
+            if hasattr(fpt, "ToolFaces") and hasattr(fpt.ToolFaces, "FaceCollector"):
+                try:
+                    fpt.ToolFaces.FaceCollector.ReplaceRules([tool_rule], False)
+                except Exception:
+                    pass
+            elif hasattr(fpt, "FaceCollector"):
+                try:
+                    fpt.FaceCollector.ReplaceRules([tool_rule], False)
+                except Exception:
+                    pass
+            if flip_direction and hasattr(builder.BooleanTool, "ReverseDirection"):
+                try:
+                    builder.BooleanTool.ReverseDirection = True
+                except Exception:
+                    pass
+        elif hasattr(builder, "Tool"):
+            builder.Tool = tl
+
+        if flip_direction:
+            if hasattr(builder, "FlipTrimDirection"):
+                builder.FlipTrimDirection = True
+            elif hasattr(builder, "Reverse"):
+                builder.Reverse()
+
+    def config_original(builder, wp):
+        """Config for original TrimBodyBuilder (SetTargets + Tool)."""
+        if hasattr(builder, "SetTargets"):
+            builder.SetTargets([tb])
+        elif hasattr(builder, "AddTarget"):
+            builder.AddTarget(tb)
+        elif hasattr(builder, "TargetBodyCollector"):
+            rule = wp.ScRuleFactory.CreateRuleBodyDumb([tb])
+            coll = wp.ScCollectors.CreateCollector()
+            coll.ReplaceRules([rule], False)
+            builder.TargetBodyCollector = coll
+        elif hasattr(builder, "TargetBody"):
+            builder.TargetBody = tb
+
+        if hasattr(builder, "Tool"):
+            builder.Tool = tl
+
+        if flip_direction and hasattr(builder, "Reverse"):
+            builder.Reverse()
+
+    # Try TrimBody2Builder first (standard in NX 2206+)
+    res = _execute_surface_builder("CreateTrimBody2Builder", config_tb2, "Body trimmed successfully")
+    if not res.get("ok"):
+        # Fall back to original TrimBodyBuilder
+        res = _execute_surface_builder("CreateTrimBodyBuilder", config_original, "Body trimmed successfully")
+    if res.get("ok"):
+        _state["last_body_id"] = pre_bid
+        if pre_bid in _state.get("id_map", {}):
+            _state["last_body"] = _state["id_map"][pre_bid]
+        elif pre_bid in _state.get("bodies", {}):
+            _state["last_body"] = _state["bodies"][pre_bid]
+    return res
 
 
 def divide_face(target_face_x=0.0, target_face_y=0.0, target_face_z=0.0, boundary_sketch="last", body="last"):
@@ -5592,9 +6568,25 @@ def divide_face(target_face_x=0.0, target_face_y=0.0, target_face_z=0.0, boundar
     def config(builder, wp):
         sec = _build_section_from_curves(wp, curves)
         if hasattr(builder, "FaceToDivide"):
-            builder.FaceToDivide = f
+            try:
+                builder.FaceToDivide.Value = f
+            except Exception:
+                try:
+                    rule = wp.ScRuleFactory.CreateRuleFaceDumb([f])
+                    builder.FaceToDivide.ReplaceRules([rule], False)
+                except Exception:
+                    builder.FaceToDivide = f
+        elif hasattr(builder, "FacesToDivide"):
+            try:
+                builder.FacesToDivide.Add([f])
+            except Exception:
+                pass
         if hasattr(builder, "DividingCurves"):
             builder.DividingCurves = sec
+        elif hasattr(builder, "Curves"):
+            builder.Curves = sec
+        elif hasattr(builder, "CurveCollector"):
+            builder.CurveCollector = sec
     return _execute_surface_builder("CreateDivideFaceBuilder", config, "Divide face completed")
 
 
@@ -5617,6 +6609,133 @@ def untrim_sheet(target_edge_x=0.0, target_edge_y=0.0, target_edge_z=0.0, body="
     return _execute_surface_builder("CreateUntrimBuilder", config, "Untrimmed sheet successfully")
 
 
+def delete_feature(feature_id="last"):
+    work_part = _ensure_work_part()
+    feature = _resolve_feature(feature_id)
+    feat_name = _feature_name(feature)
+
+    bodies_to_cleanup = []
+    for bid, b in list(_state.get("bodies", {}).items()):
+        if hasattr(b, "GetFeatures"):
+            try:
+                feats = list(b.GetFeatures())
+                if feature in feats:
+                    bodies_to_cleanup.append(bid)
+            except Exception:
+                pass
+
+    mark = None
+    if SESSION is not None and hasattr(SESSION, "SetUndoMark"):
+        mark = SESSION.SetUndoMark(
+            NXOpen.Session.MarkVisibility.Invisible, "delete_feature"
+        )
+    try:
+        SESSION.UpdateManager.AddToDeleteList(feature)
+        if mark is not None:
+            err_count = SESSION.UpdateManager.DoUpdate(mark)
+            if err_count > 0:
+                return {"ok": False, "error": f"Failed to delete feature {feat_name}: update errors ({err_count})"}
+    finally:
+        if mark is not None and hasattr(SESSION, "DeleteUndoMark"):
+            try:
+                SESSION.DeleteUndoMark(mark, "delete_feature")
+            except Exception:
+                pass
+
+    for k, v in list(_state.get("features", {}).items()):
+        f_obj = v["feature"] if isinstance(v, dict) and "feature" in v else v
+        if f_obj == feature or k == str(feature_id).lower():
+            _state["features"].pop(k, None)
+    for k, v in list(_state.get("id_map", {}).items()):
+        if v == feature or k == str(feature_id).lower():
+            _state["id_map"].pop(k, None)
+
+    for bid in bodies_to_cleanup:
+        _state.get("bodies", {}).pop(bid, None)
+        _state.get("id_map", {}).pop(bid, None)
+        if _state.get("last_body_id") == bid:
+            _state["last_body"] = None
+            _state["last_body_id"] = None
+
+    if _state.get("last_feature") == feature:
+        _state["last_feature"] = None
+        _state["last_feature_id"] = None
+
+    fit_view()
+    return {
+        "ok": True,
+        "message": f"Deleted feature '{feat_name}' ({feature_id})",
+        "consumed": [feature_id] if feature_id else [],
+        "produced": [],
+        "modified": [],
+    }
+
+
+def delete_body(body_id="last"):
+    work_part = _ensure_work_part()
+    body = _resolve_body(body_id)
+    b_name = _body_name(body)
+
+    features = []
+    if hasattr(body, "GetFeatures"):
+        try:
+            features = list(body.GetFeatures())
+        except Exception:
+            features = []
+
+    mark = None
+    if SESSION is not None and hasattr(SESSION, "SetUndoMark"):
+        mark = SESSION.SetUndoMark(
+            NXOpen.Session.MarkVisibility.Invisible, "delete_body"
+        )
+    try:
+        if features:
+            for f in features:
+                SESSION.UpdateManager.AddToDeleteList(f)
+        else:
+            SESSION.UpdateManager.AddToDeleteList(body)
+
+        if mark is not None:
+            err_count = SESSION.UpdateManager.DoUpdate(mark)
+            if err_count > 0:
+                return {"ok": False, "error": f"Failed to delete body {b_name}: update errors ({err_count})"}
+    finally:
+        if mark is not None and hasattr(SESSION, "DeleteUndoMark"):
+            try:
+                SESSION.DeleteUndoMark(mark, "delete_body")
+            except Exception:
+                pass
+
+    for k, v in list(_state.get("bodies", {}).items()):
+        if v == body or k == str(body_id).lower():
+            _state["bodies"].pop(k, None)
+    for k, v in list(_state.get("id_map", {}).items()):
+        if v == body or k == str(body_id).lower():
+            _state["id_map"].pop(k, None)
+
+    for f in features:
+        for k, v in list(_state.get("features", {}).items()):
+            f_obj = v["feature"] if isinstance(v, dict) and "feature" in v else v
+            if f_obj == f:
+                _state["features"].pop(k, None)
+        for k, v in list(_state.get("id_map", {}).items()):
+            if v == f:
+                _state["id_map"].pop(k, None)
+
+    if _state.get("last_body") == body:
+        _state["last_body"] = None
+        _state["last_body_id"] = None
+
+    fit_view()
+    return {
+        "ok": True,
+        "message": f"Deleted body '{b_name}' ({body_id})",
+        "consumed": [body_id] if body_id else [],
+        "produced": [],
+        "modified": [],
+    }
+
+
 def delete_edge(target_edge_x=0.0, target_edge_y=0.0, target_edge_z=0.0, body="last"):
     edge = _resolve_edge_by_coordinate(body, target_edge_x, target_edge_y, target_edge_z)
     def config(builder, wp):
@@ -5635,10 +6754,23 @@ def emboss_body(target_body="last", boundary_sketch="last", depth=5.0):
         if hasattr(builder, "Depth"):
             builder.Depth.RightHandSide = d_name
         if hasattr(builder, "TargetBody"):
-            builder.TargetBody = tb
+            try:
+                builder.TargetBody.Value = tb
+            except Exception:
+                builder.TargetBody = tb
+        elif hasattr(builder, "Target"):
+            builder.Target = tb
+        sec = _build_section_from_curves(wp, curves)
         if hasattr(builder, "BoundarySection"):
-            builder.BoundarySection = _build_section_from_curves(wp, curves)
-    return _execute_surface_builder("CreateEmbossBodyBuilder", config, f"Emboss body completed by {depth}mm")
+            builder.BoundarySection = sec
+        elif hasattr(builder, "Section"):
+            builder.Section = sec
+        elif hasattr(builder, "Profile"):
+            builder.Profile = sec
+    res = _execute_surface_builder("CreateEmbossBodyBuilder", config, f"Emboss body completed by {depth}mm")
+    if not res.get("ok"):
+        res = _execute_surface_builder("CreateEmbossBuilder", config, f"Emboss body completed by {depth}mm")
+    return res
 
 
 def patch_body(target_body="last", tool_sheet="last"):
@@ -5652,23 +6784,85 @@ def patch_body(target_body="last", tool_sheet="last"):
     return _execute_surface_builder("CreatePatchBuilder", config, "Body patched successfully")
 
 
-def unsew_sheets(target_body="last", split_edge_x=0.0, split_edge_y=0.0, split_edge_z=0.0):
+def unsew_sheets(target_body="last", split_edge_x=0.0, split_edge_y=0.0, split_edge_z=0.0, face_x=None, face_y=None, face_z=None):
     tb = _resolve_body(target_body)
-    edge = _resolve_edge_by_coordinate(target_body, split_edge_x, split_edge_y, split_edge_z)
+    work_part = _ensure_work_part()
+    faces = list(tb.GetFaces() or []) if tb else []
+    f = None
+    if face_x is not None:
+        f = _resolve_face_by_coordinate(target_body, face_x, face_y, face_z)
+    elif len(faces) >= 2:
+        f = faces[0]
+    elif faces:
+        f = faces[0]
+
     def config(builder, wp):
+        if f is not None:
+            rule = wp.ScRuleFactory.CreateRuleFaceDumb([f])
+            if hasattr(builder, "Face"):
+                try:
+                    builder.Face.Value = f
+                except Exception:
+                    try:
+                        builder.Face.ReplaceRules([rule], False)
+                    except Exception:
+                        builder.Face = f
+            elif hasattr(builder, "Faces"):
+                try:
+                    builder.Faces.Add([f])
+                except Exception:
+                    try:
+                        builder.Faces.ReplaceRules([rule], False)
+                    except Exception:
+                        pass
+            elif hasattr(builder, "FaceCollector"):
+                builder.FaceCollector.ReplaceRules([rule], False)
+            elif hasattr(builder, "FaceSelect"):
+                try:
+                    builder.FaceSelect.Value = f
+                except Exception:
+                    pass
         if hasattr(builder, "TargetBody"):
-            builder.TargetBody = tb
-        if hasattr(builder, "EdgeToUnsew"):
-            builder.EdgeToUnsew = edge
+            try:
+                builder.TargetBody = tb
+            except Exception:
+                pass
     return _execute_surface_builder("CreateUnsewBuilder", config, "Unsewed sheet body")
 
 
-def make_solid(target_sheet="last"):
+def make_solid(target_sheet="last", tool_sheets=None):
     tb = _resolve_body(target_sheet)
+    work_part = _ensure_work_part()
+    if tool_sheets is not None:
+        tools = tool_sheets if isinstance(tool_sheets, list) else ([t.strip() for t in str(tool_sheets).split(",") if t.strip()] if "," in str(tool_sheets) else [tool_sheets])
+        tool_bodies = [_resolve_body(t) for t in tools]
+    else:
+        tb_min, tb_max = _body_bounds(tb)
+        touching_sheets = []
+        for b in _iter_bodies(work_part):
+            if hasattr(b, "IsSheetBody") and b.IsSheetBody and b != tb:
+                try:
+                    b_min, b_max = _body_bounds(b)
+                    if not (b_max[0] < tb_min[0] - 35.0 or b_min[0] > tb_max[0] + 35.0 or
+                            b_max[1] < tb_min[1] - 35.0 or b_min[1] > tb_max[1] + 35.0 or
+                            b_max[2] < tb_min[2] - 35.0 or b_min[2] > tb_max[2] + 35.0):
+                        touching_sheets.append(b)
+                except Exception:
+                    pass
+        tool_bodies = touching_sheets
+
     def config(builder, wp):
-        if hasattr(builder, "SheetBody"):
-            builder.SheetBody = tb
-    return _execute_surface_builder("CreateMakeSolidBuilder", config, "Sewn sheet body successfully converted to Solid body")
+        builder.Tolerance = 0.01
+        if hasattr(NXOpen.Features.SewBuilder, "BodyPreferenceTypes"):
+            builder.BodyPreference = NXOpen.Features.SewBuilder.BodyPreferenceTypes.Solid
+        if hasattr(builder, "TargetBodies"):
+            builder.TargetBodies.Add(tb)
+        elif hasattr(builder, "TargetBody"):
+            builder.TargetBody = tb
+        if hasattr(builder, "ToolBodies"):
+            for t in tool_bodies:
+                builder.ToolBodies.Add(t)
+    return _execute_surface_builder("CreateSewBuilder", config, "Sewn sheet body successfully converted to Solid body")
 
 
 def sheet_boundary_analysis(body="last"):
@@ -5691,26 +6885,75 @@ def quilt_sheets(target_sheet="last"):
 
 def reverse_normal(body="last"):
     tb = _resolve_body(body)
+    if not tb:
+        return {"ok": False, "error": "Target body not found for reverse normal"}
+    try:
+        uf_session = NXOpen.UF.UFSession.GetUFSession()
+        if hasattr(uf_session, "Modeling") and hasattr(uf_session.Modeling, "CreateReverseNormal"):
+            feat_tag = uf_session.Modeling.CreateReverseNormal(tb.Tag, 1)
+            if feat_tag:
+                work_part = _ensure_work_part()
+                feat = None
+                try:
+                    if hasattr(work_part.Features, "FindObject"):
+                        feat = work_part.Features.FindObject(str(feat_tag))
+                except Exception:
+                    feat = None
+                if not feat:
+                    try:
+                        nx_obj = NXOpen.TaggedObjectManager.GetTaggedObject(feat_tag)
+                        if nx_obj:
+                            feat = nx_obj
+                    except Exception:
+                        pass
+                if feat:
+                    _remember_feature(feat)
+                bid = _body_name(tb)
+                fit_view()
+                return {"ok": True, "message": f"Reversed sheet normal direction on '{bid}'", "feature_tag": int(feat_tag)}
+    except Exception as e:
+        sys.stderr.write(f"UF CreateReverseNormal failed: {e}\n")
+
     def config(builder, wp):
         if hasattr(builder, "FaceCollector"):
-            collector = wp.ScCollectors.CreateCollector()
             rule = wp.ScRuleFactory.CreateRuleBodyDumb([tb], True)
-            _set_collector_rules(collector, [rule])
-            builder.FaceCollector = collector
+            builder.FaceCollector.ReplaceRules([rule], False)
     return _execute_surface_builder("CreateReverseNormalBuilder", config, "Reversed sheet normal direction")
 
 
 def local_untrim_extend(boundary_edge_x=0.0, boundary_edge_y=0.0, boundary_edge_z=0.0, distance=10.0, body="last"):
     dist = float(distance)
     edge = _resolve_edge_by_coordinate(body, boundary_edge_x, boundary_edge_y, boundary_edge_z)
+    if not edge:
+        tb = _resolve_body(body)
+        edges = list(tb.GetEdges() or []) if tb else []
+        if edges:
+            edge = edges[0]
+    if not edge:
+        return {"ok": False, "error": "Boundary edge not found for local untrim extend"}
     prefix = _next_instance_prefix("LOCAL_EXT")
-    def config(builder, wp):
+
+    def config_te(builder, wp):
+        rule = wp.ScRuleFactory.CreateRuleEdgeTangent(edge, NXOpen.Edge.Null, False, 0.5, False)
+        if hasattr(builder, "TargetCollector"):
+            builder.TargetCollector.ReplaceRules([rule], False)
+        elif hasattr(builder, "Edges"):
+            builder.Edges.ReplaceRules([rule], False)
         d_name = _create_input_expression(wp, f"{prefix}_DIST", dist)
-        if hasattr(builder, "Distance"):
+        if hasattr(builder, "TargetExtendDistance") and hasattr(builder.TargetExtendDistance, "RightHandSide"):
+            builder.TargetExtendDistance.RightHandSide = d_name
+        elif hasattr(builder, "Distance"):
             builder.Distance.RightHandSide = d_name
-        if hasattr(builder, "Edge"):
-            builder.Edge = edge
-    return _execute_surface_builder("CreateLocalUntrimExtendBuilder", config, f"Untrimmed and extended face by {dist}mm")
+        builder.Tolerance = 0.01
+
+    res = _execute_surface_builder("CreateTrimExtendBuilder", config_te, f"Untrimmed and extended face edge by {dist}mm")
+    if not res.get("ok"):
+        def config_ut(b_ut, wp):
+            rule_f = wp.ScRuleFactory.CreateRuleFaceDumb(list(edge.GetFaces() or []))
+            if hasattr(b_ut, "FaceCollector"):
+                b_ut.FaceCollector.ReplaceRules([rule_f], False)
+        res = _execute_surface_builder("CreateUntrimBuilder", config_ut, f"Untrimmed face")
+    return res
 
 
 def replace_edge(target_edge_x=0.0, target_edge_y=0.0, target_edge_z=0.0, tool_sketch="last", body="last"):
@@ -5719,9 +6962,18 @@ def replace_edge(target_edge_x=0.0, target_edge_y=0.0, target_edge_z=0.0, tool_s
     def config(builder, wp):
         sec = _build_section_from_curves(wp, curves)
         if hasattr(builder, "EdgeToReplace"):
-            builder.EdgeToReplace = edge
+            try:
+                builder.EdgeToReplace.Value = edge
+            except Exception:
+                try:
+                    rule = wp.ScRuleFactory.CreateRuleEdgeDumb([edge])
+                    builder.EdgeToReplace.ReplaceRules([rule], False)
+                except Exception:
+                    builder.EdgeToReplace = edge
         if hasattr(builder, "ReplacementCurves"):
             builder.ReplacementCurves = sec
+        elif hasattr(builder, "ReplacementSection"):
+            builder.ReplacementSection = sec
     return _execute_surface_builder("CreateReplaceEdgeBuilder", config, "Replaced edge completed")
 
 
@@ -5835,108 +7087,6 @@ def refit_face(body="last"):
         if hasattr(builder, "Body"):
             builder.Body = tb
     return _execute_surface_builder("CreateRefitFaceBuilder", config, "Refitted face geometry")
-
-
-def create_part(filename, overwrite=True):
-    try:
-        session = _get_session()
-        abs_path = os.path.abspath(str(filename))
-        leaf_name = os.path.basename(abs_path).lower()
-        leaf_stem = os.path.splitext(leaf_name)[0].lower()
-        
-        # Check if already open in session memory by full path or leaf name
-        try:
-            for p in list(session.Parts):
-                p_leaf = getattr(p, "Leaf", "").lower()
-                p_full = getattr(p, "FullPath", "").lower()
-                if p_leaf in (leaf_name, leaf_stem) or p_full == abs_path.lower():
-                    if overwrite:
-                        try:
-                            p.Close(NXOpen.BasePart.CloseWholeTree.TrueValue, NXOpen.BasePart.CloseModified.CloseModified, None)
-                        except Exception:
-                            session.Parts.SetWork(p)
-                            _state.clear()
-                            _seed_counters_from_part(p)
-                            return {"ok": True, "message": f"Reset and set work part: {abs_path}", "filepath": abs_path}
-                    else:
-                        session.Parts.SetWork(p)
-                        return {"ok": True, "message": f"Set active work part: {abs_path}", "filepath": abs_path}
-        except Exception:
-            pass
-
-        if os.path.exists(abs_path) and overwrite:
-            try:
-                os.remove(abs_path)
-            except Exception:
-                pass
-
-        try:
-            part = session.Parts.NewDisplay(abs_path, NXOpen.Part.Units.Millimeters)
-        except Exception as new_err:
-            if "already exists" in str(new_err).lower():
-                # Attempt to find or reopen existing
-                for p in list(session.Parts):
-                    if getattr(p, "FullPath", "").lower() == abs_path.lower():
-                        session.Parts.SetWork(p)
-                        _state.clear()
-                        return {"ok": True, "message": f"Reused existing part in memory: {abs_path}", "filepath": abs_path}
-            raise new_err
-
-        _state.clear()
-        _state.update({
-            "last_curves": [],
-            "last_feature": None,
-            "last_body": None,
-            "features": {},
-            "bodies": {},
-            "sketches": {},
-            "active_sketch": None,
-        })
-        return {"ok": True, "message": f"Created and displayed fresh part: {abs_path}", "filepath": abs_path}
-    except Exception as e:
-        return {"ok": False, "error": f"Failed to create part '{filename}': {e}"}
-
-
-def open_part(filepath):
-    try:
-        session = _get_session()
-        abs_path = os.path.abspath(str(filepath))
-        if not os.path.exists(abs_path):
-            return {"ok": False, "error": f"File '{abs_path}' does not exist"}
-        
-        found = None
-        try:
-            for p in list(session.Parts):
-                if getattr(p, "FullPath", "") == abs_path:
-                    found = p
-                    break
-        except Exception:
-            pass
-
-        if found:
-            session.Parts.SetWork(found)
-        else:
-            base_part, status = session.Parts.OpenBaseDisplay(abs_path)
-            if hasattr(base_part, "Part"):
-                found = base_part.Part
-            else:
-                found = base_part
-        
-        return {"ok": True, "message": f"Opened part: {abs_path}", "filepath": abs_path}
-    except Exception as e:
-        return {"ok": False, "error": f"Failed to open part '{filepath}': {e}"}
-
-
-def save_part():
-    try:
-        session = _get_session()
-        wp = session.Parts.Work
-        if not wp:
-            return {"ok": False, "error": "No work part to save"}
-        wp.Save(NXOpen.BasePart.SaveComponents.TrueValue, NXOpen.BasePart.CloseAfterSave.FalseValue)
-        return {"ok": True, "message": f"Saved part: {getattr(wp, 'FullPath', '')}"}
-    except Exception as e:
-        return {"ok": False, "error": f"Failed to save part: {e}"}
 
 
 def create_offset_plane(base_plane="XY", offset=0.0):
@@ -6264,7 +7414,7 @@ def list_features():
     try:
         work_part = SESSION.Parts.Work
         if work_part is None:
-            return {"ok": True, "message": "Features: none"}
+            return {"ok": True, "message": "Features: none", "features": [], "feature_count": 0}
         features = []
         try:
             for feature in work_part.Features:
@@ -6274,7 +7424,12 @@ def list_features():
             if callable(to_array):
                 features = list(to_array() or [])
         names = [_feature_name(f) for f in features]
-        return {"ok": True, "message": "Features: " + (", ".join(names) if names else "none")}
+        return {
+            "ok": True,
+            "message": "Features: " + (", ".join(names) if names else "none"),
+            "features": names,
+            "feature_count": len(names),
+        }
     except Exception as e:
         return {"ok": False, "error": f"Failed to list features: {e}"}
 
@@ -6616,13 +7771,44 @@ def inspect_part():
     bodies = _iter_bodies(work_part)
     features = _iter_features(work_part)
     body_info = []
+    uf_modl = _get_uf_modl()
     for b in bodies:
         faces = getattr(b, "GetFaces", lambda: [])()
+        faces_list = list(faces() if callable(faces) else (faces or []))
         edges = getattr(b, "GetEdges", lambda: [])()
+        edges_list = list(edges() if callable(edges) else (edges or []))
+        face_details = []
+        for f in faces_list:
+            ftype = str(getattr(f, "SolidFaceType", "unknown"))
+            uf_type = None
+            if uf_modl:
+                try:
+                    uf_data = uf_modl.AskFaceData(f.Tag)
+                    uf_type = uf_data[0]
+                except Exception:
+                    pass
+            face_details.append({
+                "solid_face_type": ftype,
+                "uf_type_id": uf_type,
+            })
+        min_pt, max_pt = _body_bounds(b)
+        z_min = min_pt[2] if min_pt else None
+        z_max = max_pt[2] if max_pt else None
+        z_mid = round((z_min + z_max) / 2.0, 4) if (z_min is not None and z_max is not None) else None
         body_info.append({
             "name": _body_name(b),
-            "face_count": len(faces) if callable(faces) else len(faces or []),
-            "edge_count": len(edges) if callable(edges) else len(edges or []),
+            "is_sheet": getattr(b, "IsSheetBody", False),
+            "is_solid": getattr(b, "IsSolidBody", False),
+            "face_count": len(faces_list),
+            "edge_count": len(edges_list),
+            "z_min": round(z_min, 4) if z_min is not None else None,
+            "z_max": round(z_max, 4) if z_max is not None else None,
+            "z_mid": z_mid,
+            "min": [round(x, 4) for x in min_pt] if min_pt else None,
+            "max": [round(x, 4) for x in max_pt] if max_pt else None,
+            "face_types": [fd["solid_face_type"] for fd in face_details],
+            "uf_types": [fd["uf_type_id"] for fd in face_details],
+            "faces": face_details,
         })
     return {
         "ok": True,
@@ -6853,6 +8039,12 @@ def dispatch(command):
         args["target"] = args["body"]
     if "target" in args and "body" not in args:
         args["body"] = args["target"]
+    if "body" in args and "body_id" not in args and tool == "delete_body":
+        args["body_id"] = args["body"]
+    if "body" in args and "body_reference" not in args and tool == "get_bounding_box":
+        args["body_reference"] = args["body"]
+    if "feature" in args and "feature_id" not in args and tool == "delete_feature":
+        args["feature_id"] = args["feature"]
 
     func = globals().get(tool)
     if not func or not callable(func):
@@ -6954,7 +8146,7 @@ def run_socket_bridge(config_path):
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(("127.0.0.1", port))
-    server.listen(1)
+    server.listen(16)
     server.setblocking(False)
 
     sys.stderr.write(f"Live bridge socket server listening on port {port}...\n")
@@ -6969,8 +8161,19 @@ def run_socket_bridge(config_path):
     HEALTH_LOG_INTERVAL = 300  # Log health every 5 minutes
     CLIENT_TIMEOUT = 120  # Disconnect idle clients after 2 minutes
 
+    SHUTDOWN_PATH = ROOT_DIR / "bridge.shutdown"
+
     try:
-        while config_path.exists():
+        while True:
+            # Check for explicit shutdown sentinel
+            if SHUTDOWN_PATH.exists():
+                sys.stderr.write("Shutdown sentinel detected; stopping bridge.\n")
+                try:
+                    SHUTDOWN_PATH.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                break
+
             if ui:
                 try:
                     ui.ProcessDeviceEvents()

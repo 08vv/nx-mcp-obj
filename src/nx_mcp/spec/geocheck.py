@@ -106,7 +106,7 @@ def verify_geometry(
 
                 # A single cuboid has 6 faces, 12 edges. Additional cuts/blends should increase count.
                 if len(solid_ops_executed) >= 2 and face_count < 6:
-                    report.add_warning(
+                    report.add_violation(
                         "topology_sanity",
                         f"Part has only {face_count} faces after {len(solid_ops_executed)} solid operations, suggesting potential geometric failure.",
                     )
@@ -116,7 +116,7 @@ def verify_geometry(
                         f"Topology verified: {face_count} faces and {edge_count} edges recorded across {len(solid_ops_executed)} operations.",
                     )
         except Exception as e:
-            report.add_warning("topology_sanity", f"Could not inspect part topology: {e}")
+            report.add_violation("topology_sanity", f"Could not inspect part topology: {e}")
     else:
         report.add_pass("topology_sanity", "Topology check skipped or in mock mode.")
 
@@ -136,7 +136,7 @@ def verify_geometry(
                             f"Pattern node '{node.id}' produced {len(produced_bodies)} instance bodies matching count {count}.",
                         )
                     else:
-                        report.add_warning(
+                        report.add_violation(
                             "pattern_symmetry",
                             f"Pattern node '{node.id}' produced {len(produced_bodies)} bodies, expected {count}.",
                             node_id=node.id,
@@ -152,10 +152,32 @@ def verify_geometry(
         try:
             bb_res = runner.call_nx("get_bounding_box", {"body_reference": target_body})
             if bb_res.get("ok"):
-                report.metrics["bounding_box"] = bb_res.get("bounding_box", {})
-                report.add_pass("bounding_box_sanity", f"Bounding box computed successfully for body '{target_body}'.")
+                bb = bb_res.get("bounding_box", {})
+                report.metrics["bounding_box"] = bb
+                p = base_cuboids[0].params
+                try:
+                    exp_l = float(p.get("length", 0.0))
+                    exp_w = float(p.get("width", 0.0))
+                    exp_h = float(p.get("height", 0.0))
+                    meas_l = abs(float(bb.get("max_x", 0.0)) - float(bb.get("min_x", 0.0)))
+                    meas_w = abs(float(bb.get("max_y", 0.0)) - float(bb.get("min_y", 0.0)))
+                    meas_h = abs(float(bb.get("max_z", 0.0)) - float(bb.get("min_z", 0.0)))
+                    diffs = [
+                        abs(meas_l - exp_l) / max(exp_l, 1e-4),
+                        abs(meas_w - exp_w) / max(exp_w, 1e-4),
+                        abs(meas_h - exp_h) / max(exp_h, 1e-4),
+                    ]
+                    if any(d > tolerance for d in diffs if d > 0.0):
+                        report.add_violation(
+                            "bounding_box_envelope",
+                            f"Bounding box dimensions deviate by > {tolerance*100:.0f}% from base primitive envelope.",
+                        )
+                    else:
+                        report.add_pass("bounding_box_sanity", f"Bounding box computed and verified for body '{target_body}'.")
+                except Exception:
+                    report.add_pass("bounding_box_sanity", f"Bounding box computed successfully for body '{target_body}'.")
         except Exception as e:
-            report.add_warning("bounding_box_sanity", f"Could not query bounding box: {e}")
+            report.add_violation("bounding_box_sanity", f"Could not query bounding box: {e}")
     else:
         report.add_pass("bounding_box_sanity", "Bounding box check verified.")
 

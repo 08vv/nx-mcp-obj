@@ -16,6 +16,7 @@ from nx_mcp.tools import (
     discovery,
     recipe,
     state_tools,
+    mesh_tools,
 )
 from nx_mcp.tools.registry import ToolRegistry
 
@@ -146,6 +147,47 @@ def handle(req):
     return err(id_, -32601, f"Unknown method: {method}")
 
 
+def _check_or_prewarm_nx():
+    try:
+        from nx_mcp.bridge import runner
+        s = runner.try_connect_socket(runner.LIVE_PORT)
+        if s is not None:
+            s.close()
+            sys.stderr.write(
+                f"[NX-MCP] Siemens NX bridge is connected and ready on port {runner.LIVE_PORT}.\n"
+            )
+            sys.stderr.flush()
+            return
+
+        sys.stderr.write(
+            f"[NX-MCP] Siemens NX interactive bridge is not running on port {runner.LIVE_PORT}.\n"
+        )
+        if os.environ.get("NX_MCP_AUTO_LAUNCH", "1") == "1":
+            sys.stderr.write(
+                "[NX-MCP] Auto-launching Siemens NX session in the background...\n"
+            )
+            sys.stderr.flush()
+            success = runner.launch_interactive_nx(port=runner.LIVE_PORT)
+            if success:
+                sys.stderr.write(
+                    f"[NX-MCP] Siemens NX auto-launched successfully on port {runner.LIVE_PORT}.\n"
+                )
+            else:
+                sys.stderr.write(
+                    "[NX-MCP] Notice: Auto-launch did not bring up the bridge. "
+                    "If the floating license is held or NX is still starting, please ensure the license seat is free or run 'python prewarm_nx.py'.\n"
+                )
+            sys.stderr.flush()
+        else:
+            sys.stderr.write(
+                "[NX-MCP] Auto-launch is disabled (NX_MCP_AUTO_LAUNCH=0). "
+                "Please run 'python prewarm_nx.py' to start the NX bridge.\n"
+            )
+            sys.stderr.flush()
+    except Exception as exc:
+        log.warning(f"Background NX prewarm encountered: {exc}")
+
+
 def main():
     log.info(f"NX MCP started — {len(ToolRegistry.all())} tools")
 
@@ -159,6 +201,9 @@ def main():
             sys.stderr.write(f"ERROR: NX environment check failed: {e}\n")
             sys.stderr.flush()
             sys.exit(1)
+
+        import threading
+        threading.Thread(target=_check_or_prewarm_nx, daemon=True, name="nx-prewarm").start()
 
     for line in sys.stdin:
         line = line.strip()

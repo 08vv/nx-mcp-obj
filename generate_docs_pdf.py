@@ -222,11 +222,12 @@ def cover_page(styles):
 
     summary_data = [
         ["Metric", "Value"],
-        ["Source lines (nx_bridge.py)", "~5,300"],
-        ["Total tool functions", "~60"],
-        ["Tool modules", "9"],
-        ["Test suite", "51 tests"],
-        ["NX communication modes", "2 (Socket + Batch)"],
+        ["Source lines (nx_bridge.py)", "~6,032"],
+        ["Total registered tools", "154"],
+        ["Tool modules", "12"],
+        ["Test suite", "259 tests (100% passing)"],
+        ["NX communication mode", "Socket-First (TCP :43210)"],
+        ["CAD Spec DAG Engine", "Supported (run_spec)"],
         ["Supported NX versions", "NX 2206+"],
     ]
     tbl = Table(

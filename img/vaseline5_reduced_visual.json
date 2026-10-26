@@ -1,0 +1,92 @@
+{
+  "product_type": "squeeze_tube_container",
+  "image_file": "img/vaseline5_reduced.jpg",
+  "visual_observations": [
+    "Vaseline Healthy Bright Gluta-Hya Serum Burst UV Lotion squeeze tube packaging (~199.4 mm height).",
+    "Base closure: White flip-top dispensing cap (~24 mm height, Y ~ -100 to -76 mm) with flat standing foot.",
+    "Shoulder transition: Chamfered stepped neck transition (Y ~ -76 to -71 mm) connecting cap to tube body.",
+    "Flexible tube body: Widening ergonomic squeeze tube container with prominent Vaseline Gluta-Hya branding graphics.",
+    "Top closure: Flat ribbed heat-sealed crimp seal end (Y ~ 90 to 99.5 mm) with fine vertical crimp serrations."
+  ],
+  "corrections_applied": [
+    "Relabeled Zone 1 to CAP_BASE with role BASE (flip-top standing cap base).",
+    "Relabeled Zone 2 to CAP_COLLAR with role COLLAR (flip-top cap body).",
+    "Relabeled Zone 3 to SHOULDER_LOWER with role SHOULDER (lower shoulder transition step).",
+    "Relabeled Zone 4 to SHOULDER_UPPER with role SHOULDER (upper shoulder transition step).",
+    "Relabeled Zone 5 to TUBE_BODY with role BODY (main flexible squeeze tube body).",
+    "Relabeled Zone 6 to TUBE_CREST with role BODY (pre-crimp tube body crest).",
+    "Relabeled Zone 7 to CRIMP_TRANSITION with role TRANSITION (narrowing crimp transition).",
+    "Relabeled Zone 8 to CRIMP_SEAL with role CLOSURE (top heat-sealed crimp seal closure)."
+  ],
+  "zone_labels": [
+    {
+      "zone_idx": 1,
+      "role": "BASE",
+      "name": "CAP_BASE",
+      "suggested_group": "CAP_ASSEMBLY",
+      "notes": "Bottom standing face of flip-top dispensing cap"
+    },
+    {
+      "zone_idx": 2,
+      "role": "COLLAR",
+      "name": "CAP_COLLAR",
+      "suggested_group": "CAP_ASSEMBLY",
+      "notes": "Main cylindrical body of flip-top cap"
+    },
+    {
+      "zone_idx": 3,
+      "role": "SHOULDER",
+      "name": "SHOULDER_LOWER",
+      "suggested_group": "BODY_ASSEMBLY",
+      "notes": "Lower tapered transition step from cap into tube body"
+    },
+    {
+      "zone_idx": 4,
+      "role": "SHOULDER",
+      "name": "SHOULDER_UPPER",
+      "suggested_group": "BODY_ASSEMBLY",
+      "notes": "Upper transition step entering tube body"
+    },
+    {
+      "zone_idx": 5,
+      "role": "BODY",
+      "name": "TUBE_BODY",
+      "suggested_group": "BODY_ASSEMBLY",
+      "notes": "Main flexible squeeze tube body"
+    },
+    {
+      "zone_idx": 6,
+      "role": "BODY",
+      "name": "TUBE_CREST",
+      "suggested_group": "BODY_ASSEMBLY",
+      "notes": "Upper crest transition into seal"
+    },
+    {
+      "zone_idx": 7,
+      "role": "TRANSITION",
+      "name": "CRIMP_TRANSITION",
+      "suggested_group": "CLOSURE_ASSEMBLY",
+      "notes": "Beveled transition into flat crimp seal"
+    },
+    {
+      "zone_idx": 8,
+      "role": "CLOSURE",
+      "name": "CRIMP_SEAL",
+      "suggested_group": "CLOSURE_ASSEMBLY",
+      "notes": "Top flat heat-sealed crimp end closure"
+    }
+  ],
+  "suggested_groupings": {
+    "CAP_ASSEMBLY": [1, 2],
+    "BODY_ASSEMBLY": [3, 4, 5, 6],
+    "CLOSURE_ASSEMBLY": [7, 8]
+  },
+  "directives": {
+    "split_points": [0.45],
+    "edge_style": {
+      "base": "fillet",
+      "crown": "fillet"
+    }
+  },
+  "notes": "Visual inspection of img/vaseline5_reduced.jpg confirms 200ml squeeze tube packaging with flip-top dispensing cap and top crimp seal."
+}

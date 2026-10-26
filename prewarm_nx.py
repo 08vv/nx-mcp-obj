@@ -9,6 +9,7 @@ import time
 
 os.environ.setdefault("UGII_BASE_DIR", r"C:\Program Files\Siemens\NX2206")
 os.environ.setdefault("UGII_ROOT_DIR", r"C:\Program Files\Siemens\NX2206\NXBIN")
+os.environ.setdefault("SPLM_LICENSE_SERVER", "28000@192.168.1.19")
 os.environ["PATH"] = (
     f"{os.environ['UGII_ROOT_DIR']};{os.environ['UGII_BASE_DIR']}\\UGII;"
     f"{os.environ.get('PATH', '')}"
@@ -45,6 +46,20 @@ def _cleanup_stale_nx() -> None:
             runner.CONFIG_PATH.unlink()
         except OSError as exc:
             print(f"[WARN] Could not remove stale config: {exc}")
+    if runner.LOCK_PATH.exists():
+        try:
+            runner.LOCK_PATH.unlink()
+        except OSError as exc:
+            print(f"[WARN] Could not remove stale lock: {exc}")
+    if runner.LAUNCH_LOCK_PATH.exists():
+        try:
+            runner.LAUNCH_LOCK_PATH.unlink()
+        except OSError as exc:
+            print(f"[WARN] Could not remove stale launch lock: {exc}")
+    for _ in range(20):
+        if runner._find_running_ugraf() is None:
+            break
+        time.sleep(0.5)
     time.sleep(1)
 
 
@@ -67,6 +82,9 @@ def prewarm() -> int:
     _cleanup_stale_nx()
     print("Launching Siemens NX through runner.launch_interactive_nx()...")
     if runner.launch_interactive_nx(port=port):
+        runner.NXBridgeProcess._ugraf_proc = None
+        if hasattr(atexit, "_clear"):
+            atexit._clear()
         print(f"[OK] Prewarm complete: NX is live and socket-connectable on port {port}.")
         return 0
 

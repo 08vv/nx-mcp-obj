@@ -10,7 +10,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+
 # Siemens NX runtime & session artifacts
+.env
 *.log
 *.prt
 *.step
@@ -34,3 +36,5 @@ pytest_temp/
 verify_*.py
 benchmark_*.py
 reconcile_*.py
+
+logs/

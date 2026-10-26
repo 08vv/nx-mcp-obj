@@ -22,7 +22,7 @@ def test_run_journal_uses_run_journal_exe(monkeypatch, tmp_path):
 
     calls = []
 
-    def fake_run(command, check, capture_output, text, timeout):
+    def fake_run(command, check, capture_output, text, timeout, **kwargs):
         calls.append((command, check, capture_output, text, timeout))
         return subprocess.CompletedProcess(command, 0, "ok\n", "")
 

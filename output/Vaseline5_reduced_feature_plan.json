@@ -1,0 +1,1084 @@
+{
+  "mesh_name": "Vaseline5_reduced.obj",
+  "primary_axis": "Y",
+  "transverse_axes": [
+    "X",
+    "Z"
+  ],
+  "total_height_mm": 199.44,
+  "total_stations_probed": 79,
+  "range_count": 4,
+  "end_blend_ranges_count": 0,
+  "supported_ranges_count": 4,
+  "unsupported_ranges_count": 0,
+  "ranges": [
+    {
+      "range_index": 1,
+      "elevation_range_mm": [
+        -99.98,
+        -75.76
+      ],
+      "height_span_mm": 24.23,
+      "station_count": 8,
+      "classification": "BLENDED",
+      "cad_operation": "LOFT_SKETCHES",
+      "mean_circularity": 0.737,
+      "mean_aspect_ratio": 2.319,
+      "measured_taper_deg": 0.229,
+      "fitted_primitive": "MULTI_SKETCH_LOFT (2 sketches)",
+      "fitted_parameters": {
+        "sketch_count": 2,
+        "sketch_elevations_mm": [
+          -99.98,
+          -75.76
+        ],
+        "sub_spans": [
+          {
+            "start_elevation_mm": -99.98,
+            "end_elevation_mm": -75.76,
+            "mid_elevation_mm": -96.08,
+            "mid_error_pct": 4.79,
+            "max_error_pct": 4.79
+          }
+        ],
+        "driving_sketches": [
+          {
+            "elevation_mm": -99.98,
+            "primitive_type": "COMPOUND_4_ARC",
+            "parameters": {
+              "width": 47.445,
+              "thickness": 19.505,
+              "corner_radius": 5.263,
+              "flank_radius": 45.455
+            }
+          },
+          {
+            "elevation_mm": -75.76,
+            "primitive_type": "COMPOUND_4_ARC",
+            "parameters": {
+              "width": 47.793,
+              "thickness": 21.133,
+              "corner_radius": 5.1,
+              "flank_radius": 40.15
+            }
+          }
+        ],
+        "start_primitive": "COMPOUND_4_ARC",
+        "start_parameters": {
+          "width": 47.445,
+          "thickness": 19.505,
+          "corner_radius": 5.263,
+          "flank_radius": 45.455
+        },
+        "end_primitive": "COMPOUND_4_ARC",
+        "end_parameters": {
+          "width": 47.793,
+          "thickness": 21.133,
+          "corner_radius": 5.1,
+          "flank_radius": 40.15
+        },
+        "mid_interpolation_iou_error_pct": 4.79
+      },
+      "area_overlap_error_pct": 4.79,
+      "confidence": 0.521,
+      "max_distance_mm": 4.793,
+      "per_station_errors": [
+        2.2,
+        2.58,
+        2.8,
+        2.88,
+        2.98,
+        4.56,
+        4.52,
+        3.63
+      ],
+      "is_supported": true,
+      "station_summaries": [
+        {
+          "elevation": -99.98,
+          "width": 47.45,
+          "thickness": 19.51,
+          "aspect_ratio": 2.43,
+          "circularity": 0.73
+        },
+        {
+          "elevation": -98.26,
+          "width": 47.82,
+          "thickness": 20.36,
+          "aspect_ratio": 2.35,
+          "circularity": 0.74
+        },
+        {
+          "elevation": -97.53,
+          "width": 47.85,
+          "thickness": 20.61,
+          "aspect_ratio": 2.32,
+          "circularity": 0.74
+        },
+        {
+          "elevation": -96.08,
+          "width": 47.88,
+          "thickness": 20.67,
+          "aspect_ratio": 2.32,
+          "circularity": 0.74
+        },
+        {
+          "elevation": -93.18,
+          "width": 47.96,
+          "thickness": 20.75,
+          "aspect_ratio": 2.31,
+          "circularity": 0.74
+        },
+        {
+          "elevation": -87.37,
+          "width": 47.86,
+          "thickness": 21.01,
+          "aspect_ratio": 2.28,
+          "circularity": 0.73
+        },
+        {
+          "elevation": -81.56,
+          "width": 47.87,
+          "thickness": 20.94,
+          "aspect_ratio": 2.29,
+          "circularity": 0.73
+        },
+        {
+          "elevation": -75.76,
+          "width": 47.79,
+          "thickness": 21.13,
+          "aspect_ratio": 2.26,
+          "circularity": 0.75
+        }
+      ]
+    },
+    {
+      "range_index": 2,
+      "elevation_range_mm": [
+        -75.76,
+        49.1
+      ],
+      "height_span_mm": 124.85,
+      "station_count": 29,
+      "classification": "BLENDED",
+      "cad_operation": "LOFT_SKETCHES",
+      "mean_circularity": 0.773,
+      "mean_aspect_ratio": 2.462,
+      "measured_taper_deg": 4.319,
+      "fitted_primitive": "MULTI_SKETCH_LOFT (6 sketches)",
+      "fitted_parameters": {
+        "sketch_count": 6,
+        "sketch_elevations_mm": [
+          -75.76,
+          -73.58,
+          -69.95,
+          -29.3,
+          11.35,
+          49.1
+        ],
+        "sub_spans": [
+          {
+            "start_elevation_mm": -75.76,
+            "end_elevation_mm": -73.58,
+            "mid_elevation_mm": -75.03,
+            "mid_error_pct": 4.7,
+            "max_error_pct": 4.7
+          },
+          {
+            "start_elevation_mm": -73.58,
+            "end_elevation_mm": -69.95,
+            "mid_elevation_mm": -72.13,
+            "mid_error_pct": 4.09,
+            "max_error_pct": 4.09
+          },
+          {
+            "start_elevation_mm": -69.95,
+            "end_elevation_mm": -29.3,
+            "mid_elevation_mm": -52.53,
+            "mid_error_pct": 1.9,
+            "max_error_pct": 1.9
+          },
+          {
+            "start_elevation_mm": -29.3,
+            "end_elevation_mm": 11.35,
+            "mid_elevation_mm": -11.88,
+            "mid_error_pct": 3.55,
+            "max_error_pct": 3.55
+          },
+          {
+            "start_elevation_mm": 11.35,
+            "end_elevation_mm": 49.1,
+            "mid_elevation_mm": 28.77,
+            "mid_error_pct": 4.3,
+            "max_error_pct": 4.3
+          }
+        ],
+        "driving_sketches": [
+          {
+            "elevation_mm": -75.76,
+            "primitive_type": "COMPOUND_4_ARC",
+            "parameters": {
+              "width": 47.793,
+              "thickness": 21.133,
+              "corner_radius": 5.1,
+              "flank_radius": 40.15
+            }
+          },
+          {
+            "elevation_mm": -73.58,
+            "primitive_type": "COMPOUND_4_ARC",
+            "parameters": {
+              "width": 48.809,
+              "thickness": 26.435,
+              "corner_radius": 7.159,
+              "flank_radius": 34.732
+            }
+          },
+          {
+            "elevation_mm": -69.95,
+            "primitive_type": "COMPOUND_4_ARC",
+            "parameters": {
+              "width": 51.475,
+              "thickness": 29.218,
+              "corner_radius": 8.292,
+              "flank_radius": 35.54
+            }
+          },
+          {
+            "elevation_mm": -29.3,
+            "primitive_type": "COMPOUND_4_ARC",
+            "parameters": {
+              "width": 57.643,
+              "thickness": 25.645,
+              "corner_radius": 10.271,
+              "flank_radius": 78.987
+            }
+          },
+          {
+            "elevation_mm": 11.35,
+            "primitive_type": "COMPOUND_4_ARC",
+            "parameters": {
+              "width": 63.896,
+              "thickness": 22.191,
+              "corner_radius": 9.019,
+              "flank_radius": 136.664
+            }
+          },
+          {
+            "elevation_mm": 49.1,
+            "primitive_type": "COMPOUND_4_ARC",
+            "parameters": {
+              "width": 68.423,
+              "thickness": 17.779,
+              "corner_radius": 6.753,
+              "flank_radius": 184.273
+            }
+          }
+        ],
+        "start_primitive": "COMPOUND_4_ARC",
+        "start_parameters": {
+          "width": 47.793,
+          "thickness": 21.133,
+          "corner_radius": 5.1,
+          "flank_radius": 40.15
+        },
+        "end_primitive": "COMPOUND_4_ARC",
+        "end_parameters": {
+          "width": 68.423,
+          "thickness": 17.779,
+          "corner_radius": 6.753,
+          "flank_radius": 184.273
+        },
+        "mid_interpolation_iou_error_pct": 4.7
+      },
+      "area_overlap_error_pct": 4.7,
+      "confidence": 0.53,
+      "max_distance_mm": 4.705,
+      "per_station_errors": [
+        3.63,
+        0.86,
+        0.75,
+        0.95,
+        1.12,
+        1.12,
+        1.03,
+        1.18,
+        1.63,
+        1.94,
+        2.2,
+        2.47,
+        2.7,
+        2.82,
+        2.94,
+        3.08,
+        3.21,
+        3.27,
+        3.37,
+        3.45,
+        3.52,
+        3.58,
+        3.59,
+        3.49,
+        3.41,
+        3.41,
+        3.45,
+        3.49,
+        3.53
+      ],
+      "is_supported": true,
+      "station_summaries": [
+        {
+          "elevation": -75.76,
+          "width": 47.79,
+          "thickness": 21.13,
+          "aspect_ratio": 2.26,
+          "circularity": 0.75
+        },
+        {
+          "elevation": -75.03,
+          "width": 47.43,
+          "thickness": 23.5,
+          "aspect_ratio": 2.02,
+          "circularity": 0.83
+        },
+        {
+          "elevation": -74.31,
+          "width": 47.74,
+          "thickness": 25.02,
+          "aspect_ratio": 1.91,
+          "circularity": 0.86
+        },
+        {
+          "elevation": -73.58,
+          "width": 48.89,
+          "thickness": 26.14,
+          "aspect_ratio": 1.87,
+          "circularity": 0.87
+        },
+        {
+          "elevation": -72.85,
+          "width": 49.94,
+          "thickness": 27.16,
+          "aspect_ratio": 1.84,
+          "circularity": 0.88
+        },
+        {
+          "elevation": -72.13,
+          "width": 50.72,
+          "thickness": 28.01,
+          "aspect_ratio": 1.81,
+          "circularity": 0.88
+        },
+        {
+          "elevation": -71.4,
+          "width": 51.2,
+          "thickness": 28.57,
+          "aspect_ratio": 1.79,
+          "circularity": 0.89
+        },
+        {
+          "elevation": -69.95,
+          "width": 51.43,
+          "thickness": 28.77,
+          "aspect_ratio": 1.79,
+          "circularity": 0.89
+        },
+        {
+          "elevation": -64.14,
+          "width": 52.26,
+          "thickness": 28.35,
+          "aspect_ratio": 1.84,
+          "circularity": 0.88
+        },
+        {
+          "elevation": -58.34,
+          "width": 53.14,
+          "thickness": 27.9,
+          "aspect_ratio": 1.91,
+          "circularity": 0.87
+        },
+        {
+          "elevation": -52.53,
+          "width": 54.09,
+          "thickness": 27.47,
+          "aspect_ratio": 1.97,
+          "circularity": 0.86
+        },
+        {
+          "elevation": -46.72,
+          "width": 54.97,
+          "thickness": 27.02,
+          "aspect_ratio": 2.03,
+          "circularity": 0.84
+        },
+        {
+          "elevation": -40.91,
+          "width": 55.87,
+          "thickness": 26.53,
+          "aspect_ratio": 2.11,
+          "circularity": 0.83
+        },
+        {
+          "elevation": -35.11,
+          "width": 56.76,
+          "thickness": 26.07,
+          "aspect_ratio": 2.18,
+          "circularity": 0.82
+        },
+        {
+          "elevation": -29.3,
+          "width": 57.64,
+          "thickness": 25.64,
+          "aspect_ratio": 2.25,
+          "circularity": 0.81
+        },
+        {
+          "elevation": -23.49,
+          "width": 58.58,
+          "thickness": 25.22,
+          "aspect_ratio": 2.32,
+          "circularity": 0.79
+        },
+        {
+          "elevation": -17.69,
+          "width": 59.51,
+          "thickness": 24.78,
+          "aspect_ratio": 2.4,
+          "circularity": 0.78
+        },
+        {
+          "elevation": -11.88,
+          "width": 60.43,
+          "thickness": 24.33,
+          "aspect_ratio": 2.48,
+          "circularity": 0.77
+        },
+        {
+          "elevation": -6.07,
+          "width": 61.36,
+          "thickness": 23.82,
+          "aspect_ratio": 2.58,
+          "circularity": 0.75
+        },
+        {
+          "elevation": -0.26,
+          "width": 62.27,
+          "thickness": 23.27,
+          "aspect_ratio": 2.68,
+          "circularity": 0.73
+        },
+        {
+          "elevation": 5.54,
+          "width": 63.14,
+          "thickness": 22.74,
+          "aspect_ratio": 2.78,
+          "circularity": 0.72
+        },
+        {
+          "elevation": 11.35,
+          "width": 63.9,
+          "thickness": 22.19,
+          "aspect_ratio": 2.88,
+          "circularity": 0.7
+        },
+        {
+          "elevation": 17.16,
+          "width": 64.61,
+          "thickness": 21.66,
+          "aspect_ratio": 2.98,
+          "circularity": 0.69
+        },
+        {
+          "elevation": 22.96,
+          "width": 65.25,
+          "thickness": 21.12,
+          "aspect_ratio": 3.09,
+          "circularity": 0.67
+        },
+        {
+          "elevation": 28.77,
+          "width": 65.91,
+          "thickness": 20.56,
+          "aspect_ratio": 3.21,
+          "circularity": 0.66
+        },
+        {
+          "elevation": 34.58,
+          "width": 66.6,
+          "thickness": 19.93,
+          "aspect_ratio": 3.34,
+          "circularity": 0.64
+        },
+        {
+          "elevation": 40.39,
+          "width": 67.33,
+          "thickness": 19.19,
+          "aspect_ratio": 3.51,
+          "circularity": 0.61
+        },
+        {
+          "elevation": 46.19,
+          "width": 68.06,
+          "thickness": 18.29,
+          "aspect_ratio": 3.72,
+          "circularity": 0.59
+        },
+        {
+          "elevation": 49.1,
+          "width": 68.42,
+          "thickness": 17.78,
+          "aspect_ratio": 3.85,
+          "circularity": 0.58
+        }
+      ]
+    },
+    {
+      "range_index": 3,
+      "elevation_range_mm": [
+        49.1,
+        86.84
+      ],
+      "height_span_mm": 37.75,
+      "station_count": 29,
+      "classification": "BLENDED",
+      "cad_operation": "LOFT_SKETCHES",
+      "mean_circularity": 0.387,
+      "mean_aspect_ratio": 7.03,
+      "measured_taper_deg": 3.834,
+      "fitted_primitive": "MULTI_SKETCH_LOFT (5 sketches)",
+      "fitted_parameters": {
+        "sketch_count": 5,
+        "sketch_elevations_mm": [
+          49.1,
+          66.52,
+          76.68,
+          81.76,
+          86.84
+        ],
+        "sub_spans": [
+          {
+            "start_elevation_mm": 49.1,
+            "end_elevation_mm": 66.52,
+            "mid_elevation_mm": 57.81,
+            "mid_error_pct": 3.73,
+            "max_error_pct": 3.73
+          },
+          {
+            "start_elevation_mm": 66.52,
+            "end_elevation_mm": 76.68,
+            "mid_elevation_mm": 70.87,
+            "mid_error_pct": 3.38,
+            "max_error_pct": 3.38
+          },
+          {
+            "start_elevation_mm": 76.68,
+            "end_elevation_mm": 81.76,
+            "mid_elevation_mm": 78.86,
+            "mid_error_pct": 2.48,
+            "max_error_pct": 2.48
+          },
+          {
+            "start_elevation_mm": 81.76,
+            "end_elevation_mm": 86.84,
+            "mid_elevation_mm": 83.94,
+            "mid_error_pct": 3.56,
+            "max_error_pct": 3.56
+          }
+        ],
+        "driving_sketches": [
+          {
+            "elevation_mm": 49.1,
+            "primitive_type": "COMPOUND_4_ARC",
+            "parameters": {
+              "width": 68.423,
+              "thickness": 17.779,
+              "corner_radius": 6.753,
+              "flank_radius": 184.273
+            }
+          },
+          {
+            "elevation_mm": 66.52,
+            "primitive_type": "COMPOUND_4_ARC",
+            "parameters": {
+              "width": 70.497,
+              "thickness": 13.996,
+              "corner_radius": 5.256,
+              "flank_radius": 264.311
+            }
+          },
+          {
+            "elevation_mm": 76.68,
+            "primitive_type": "COMPOUND_4_ARC",
+            "parameters": {
+              "width": 71.912,
+              "thickness": 10.628,
+              "corner_radius": 4.212,
+              "flank_radius": 462.2
+            }
+          },
+          {
+            "elevation_mm": 81.76,
+            "primitive_type": "COMPOUND_4_ARC",
+            "parameters": {
+              "width": 72.743,
+              "thickness": 8.518,
+              "corner_radius": 3.539,
+              "flank_radius": 752.437
+            }
+          },
+          {
+            "elevation_mm": 86.84,
+            "primitive_type": "COMPOUND_4_ARC",
+            "parameters": {
+              "width": 73.77,
+              "thickness": 5.87,
+              "corner_radius": 2.536,
+              "flank_radius": 1481.761
+            }
+          }
+        ],
+        "start_primitive": "COMPOUND_4_ARC",
+        "start_parameters": {
+          "width": 68.423,
+          "thickness": 17.779,
+          "corner_radius": 6.753,
+          "flank_radius": 184.273
+        },
+        "end_primitive": "COMPOUND_4_ARC",
+        "end_parameters": {
+          "width": 73.77,
+          "thickness": 5.87,
+          "corner_radius": 2.536,
+          "flank_radius": 1481.761
+        },
+        "mid_interpolation_iou_error_pct": 3.73
+      },
+      "area_overlap_error_pct": 3.73,
+      "confidence": 0.627,
+      "max_distance_mm": 3.728,
+      "per_station_errors": [
+        3.53,
+        3.54,
+        3.51,
+        3.42,
+        3.31,
+        3.19,
+        3.13,
+        3.1,
+        3.09,
+        3.1,
+        3.11,
+        3.08,
+        3.05,
+        3.04,
+        3.0,
+        2.98,
+        2.94,
+        2.88,
+        2.83,
+        2.77,
+        2.69,
+        2.6,
+        2.51,
+        2.45,
+        2.34,
+        2.24,
+        2.11,
+        2.06,
+        1.98
+      ],
+      "is_supported": true,
+      "station_summaries": [
+        {
+          "elevation": 49.1,
+          "width": 68.42,
+          "thickness": 17.78,
+          "aspect_ratio": 3.85,
+          "circularity": 0.58
+        },
+        {
+          "elevation": 52.0,
+          "width": 68.77,
+          "thickness": 17.23,
+          "aspect_ratio": 3.99,
+          "circularity": 0.56
+        },
+        {
+          "elevation": 54.9,
+          "width": 69.12,
+          "thickness": 16.66,
+          "aspect_ratio": 4.15,
+          "circularity": 0.54
+        },
+        {
+          "elevation": 57.81,
+          "width": 69.46,
+          "thickness": 16.07,
+          "aspect_ratio": 4.32,
+          "circularity": 0.53
+        },
+        {
+          "elevation": 60.71,
+          "width": 69.79,
+          "thickness": 15.43,
+          "aspect_ratio": 4.52,
+          "circularity": 0.51
+        },
+        {
+          "elevation": 63.61,
+          "width": 70.14,
+          "thickness": 14.75,
+          "aspect_ratio": 4.76,
+          "circularity": 0.49
+        },
+        {
+          "elevation": 65.07,
+          "width": 70.32,
+          "thickness": 14.38,
+          "aspect_ratio": 4.89,
+          "circularity": 0.48
+        },
+        {
+          "elevation": 66.52,
+          "width": 70.5,
+          "thickness": 14.0,
+          "aspect_ratio": 5.04,
+          "circularity": 0.47
+        },
+        {
+          "elevation": 67.97,
+          "width": 70.68,
+          "thickness": 13.58,
+          "aspect_ratio": 5.2,
+          "circularity": 0.46
+        },
+        {
+          "elevation": 69.42,
+          "width": 70.87,
+          "thickness": 13.15,
+          "aspect_ratio": 5.39,
+          "circularity": 0.44
+        },
+        {
+          "elevation": 70.87,
+          "width": 71.07,
+          "thickness": 12.69,
+          "aspect_ratio": 5.6,
+          "circularity": 0.43
+        },
+        {
+          "elevation": 72.33,
+          "width": 71.27,
+          "thickness": 12.22,
+          "aspect_ratio": 5.83,
+          "circularity": 0.42
+        },
+        {
+          "elevation": 73.78,
+          "width": 71.48,
+          "thickness": 11.72,
+          "aspect_ratio": 6.1,
+          "circularity": 0.4
+        },
+        {
+          "elevation": 75.23,
+          "width": 71.69,
+          "thickness": 11.18,
+          "aspect_ratio": 6.41,
+          "circularity": 0.39
+        },
+        {
+          "elevation": 76.68,
+          "width": 71.91,
+          "thickness": 10.63,
+          "aspect_ratio": 6.77,
+          "circularity": 0.37
+        },
+        {
+          "elevation": 77.41,
+          "width": 72.03,
+          "thickness": 10.34,
+          "aspect_ratio": 6.96,
+          "circularity": 0.36
+        },
+        {
+          "elevation": 78.13,
+          "width": 72.14,
+          "thickness": 10.06,
+          "aspect_ratio": 7.17,
+          "circularity": 0.35
+        },
+        {
+          "elevation": 78.86,
+          "width": 72.25,
+          "thickness": 9.76,
+          "aspect_ratio": 7.4,
+          "circularity": 0.34
+        },
+        {
+          "elevation": 79.58,
+          "width": 72.37,
+          "thickness": 9.46,
+          "aspect_ratio": 7.65,
+          "circularity": 0.34
+        },
+        {
+          "elevation": 80.31,
+          "width": 72.49,
+          "thickness": 9.15,
+          "aspect_ratio": 7.92,
+          "circularity": 0.33
+        },
+        {
+          "elevation": 81.04,
+          "width": 72.62,
+          "thickness": 8.84,
+          "aspect_ratio": 8.22,
+          "circularity": 0.32
+        },
+        {
+          "elevation": 81.76,
+          "width": 72.74,
+          "thickness": 8.52,
+          "aspect_ratio": 8.54,
+          "circularity": 0.31
+        },
+        {
+          "elevation": 82.49,
+          "width": 72.88,
+          "thickness": 8.19,
+          "aspect_ratio": 8.9,
+          "circularity": 0.3
+        },
+        {
+          "elevation": 83.21,
+          "width": 73.04,
+          "thickness": 7.86,
+          "aspect_ratio": 9.3,
+          "circularity": 0.28
+        },
+        {
+          "elevation": 83.94,
+          "width": 73.2,
+          "thickness": 7.51,
+          "aspect_ratio": 9.74,
+          "circularity": 0.27
+        },
+        {
+          "elevation": 84.67,
+          "width": 73.36,
+          "thickness": 7.15,
+          "aspect_ratio": 10.26,
+          "circularity": 0.26
+        },
+        {
+          "elevation": 85.39,
+          "width": 73.5,
+          "thickness": 6.77,
+          "aspect_ratio": 10.85,
+          "circularity": 0.25
+        },
+        {
+          "elevation": 86.12,
+          "width": 73.63,
+          "thickness": 6.36,
+          "aspect_ratio": 11.58,
+          "circularity": 0.23
+        },
+        {
+          "elevation": 86.84,
+          "width": 73.77,
+          "thickness": 5.87,
+          "aspect_ratio": 12.57,
+          "circularity": 0.22
+        }
+      ]
+    },
+    {
+      "range_index": 4,
+      "elevation_range_mm": [
+        86.84,
+        99.45
+      ],
+      "height_span_mm": 12.61,
+      "station_count": 16,
+      "classification": "THIN_TAB",
+      "cad_operation": "LOFT_SKETCHES",
+      "mean_circularity": 0.106,
+      "mean_aspect_ratio": 27.896,
+      "measured_taper_deg": 6.174,
+      "fitted_primitive": "COMPOUND_4_ARC",
+      "fitted_parameters": {
+        "width": 75.251,
+        "thickness": 2.55,
+        "corner_radius": 1.174,
+        "flank_radius": 6555.242
+      },
+      "area_overlap_error_pct": 2.24,
+      "confidence": 0.668,
+      "max_distance_mm": 0.983,
+      "per_station_errors": [
+        1.98,
+        1.65,
+        1.45,
+        1.55,
+        1.12,
+        1.8,
+        1.33,
+        1.55,
+        1.66,
+        1.7,
+        1.65,
+        1.6,
+        1.73,
+        2.24,
+        1.96,
+        1.91
+      ],
+      "is_supported": true,
+      "station_summaries": [
+        {
+          "elevation": 86.84,
+          "width": 73.77,
+          "thickness": 5.87,
+          "aspect_ratio": 12.57,
+          "circularity": 0.22
+        },
+        {
+          "elevation": 87.57,
+          "width": 73.91,
+          "thickness": 5.24,
+          "aspect_ratio": 14.11,
+          "circularity": 0.2
+        },
+        {
+          "elevation": 88.3,
+          "width": 74.06,
+          "thickness": 4.4,
+          "aspect_ratio": 16.82,
+          "circularity": 0.17
+        },
+        {
+          "elevation": 89.02,
+          "width": 74.21,
+          "thickness": 3.43,
+          "aspect_ratio": 21.64,
+          "circularity": 0.13
+        },
+        {
+          "elevation": 89.75,
+          "width": 74.39,
+          "thickness": 2.76,
+          "aspect_ratio": 26.91,
+          "circularity": 0.1
+        },
+        {
+          "elevation": 90.47,
+          "width": 74.57,
+          "thickness": 2.71,
+          "aspect_ratio": 27.52,
+          "circularity": 0.1
+        },
+        {
+          "elevation": 91.2,
+          "width": 74.74,
+          "thickness": 2.71,
+          "aspect_ratio": 27.57,
+          "circularity": 0.1
+        },
+        {
+          "elevation": 92.65,
+          "width": 75.09,
+          "thickness": 2.62,
+          "aspect_ratio": 28.67,
+          "circularity": 0.09
+        },
+        {
+          "elevation": 93.38,
+          "width": 75.25,
+          "thickness": 2.55,
+          "aspect_ratio": 29.51,
+          "circularity": 0.09
+        },
+        {
+          "elevation": 94.1,
+          "width": 75.39,
+          "thickness": 2.47,
+          "aspect_ratio": 30.47,
+          "circularity": 0.08
+        },
+        {
+          "elevation": 94.83,
+          "width": 75.53,
+          "thickness": 2.38,
+          "aspect_ratio": 31.72,
+          "circularity": 0.08
+        },
+        {
+          "elevation": 95.55,
+          "width": 75.66,
+          "thickness": 2.31,
+          "aspect_ratio": 32.71,
+          "circularity": 0.08
+        },
+        {
+          "elevation": 96.28,
+          "width": 75.8,
+          "thickness": 2.25,
+          "aspect_ratio": 33.71,
+          "circularity": 0.07
+        },
+        {
+          "elevation": 97.01,
+          "width": 75.93,
+          "thickness": 2.17,
+          "aspect_ratio": 34.91,
+          "circularity": 0.07
+        },
+        {
+          "elevation": 97.73,
+          "width": 76.08,
+          "thickness": 2.04,
+          "aspect_ratio": 37.33,
+          "circularity": 0.07
+        },
+        {
+          "elevation": 99.45,
+          "width": 76.27,
+          "thickness": 1.9,
+          "aspect_ratio": 40.16,
+          "circularity": 0.06
+        }
+      ]
+    }
+  ],
+  "cad_parameters": {
+    "BODY_WIDTH": 50.0,
+    "BODY_THICKNESS": 50.0,
+    "BODY_CORNER_R": 25.0,
+    "BODY_START_Y": -75.76,
+    "BODY_HEIGHT": 124.85,
+    "BODY_TAPER": 4.319,
+    "END_BLEND_R": 0.0
+  },
+  "overall_status": "SUPPORTED",
+  "is_degenerate": false,
+  "rejection_reasons": [],
+  "rotation_matrix": [
+    [
+      1.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      1.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ]
+}

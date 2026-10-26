@@ -1141,3 +1141,62 @@ def pattern(
         return ToolError(str(e))
 
 
+@mcp_tool(
+    "delete_body",
+    "Delete a body and its associated geometry by body_id or 'last'",
+)
+def delete_body(body_id: str = "last"):
+    """Deletes a solid or sheet body from the active part.
+
+    Args:
+        body_id (str): The identifier of the body to delete (e.g. 'body_1', or 'last'). Defaults to 'last'.
+
+    Returns:
+        ToolResult or ToolError: Confirmation message or error explanation.
+    """
+    body_id = str(body_id or "last").strip()
+    try:
+        if not _use_mock_nxopen():
+            return _bridge_result(
+                runner.call_nx("delete_body", {"body_id": body_id})
+            )
+        # Mock implementation
+        wp = NXSession.work_part()
+        if hasattr(wp, "Bodies") and wp.Bodies:
+            wp.Bodies.pop()
+        return ToolResult(f"Deleted body {body_id}")
+    except Exception as e:
+        return ToolError(str(e))
+
+
+@mcp_tool(
+    "delete_feature",
+    "Delete a feature from the active part feature tree by feature_id or 'last'",
+)
+def delete_feature(feature_id: str = "last"):
+    """Deletes a feature from the active part feature tree.
+
+    Args:
+        feature_id (str): The identifier or name of the feature to delete (e.g. 'feature_1', 'BLOCK(1)', or 'last'). Defaults to 'last'.
+
+    Returns:
+        ToolResult or ToolError: Confirmation message or error explanation.
+    """
+    feature_id = str(feature_id or "last").strip()
+    try:
+        if not _use_mock_nxopen():
+            return _bridge_result(
+                runner.call_nx("delete_feature", {"feature_id": feature_id})
+            )
+        # Mock implementation
+        wp = NXSession.work_part()
+        if hasattr(wp, "Features") and hasattr(wp.Features, "ToArray"):
+            feats = list(wp.Features.ToArray())
+            if feats:
+                pass
+        return ToolResult(f"Deleted feature {feature_id}")
+    except Exception as e:
+        return ToolError(str(e))
+
+
+

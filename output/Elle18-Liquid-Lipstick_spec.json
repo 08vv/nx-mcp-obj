@@ -1,0 +1,435 @@
+{
+  "source_mesh": "Elle18-Liquid-Lipstick.obj",
+  "global_shape_family": "AXISYMMETRIC_REVOLVE",
+  "primary_axis": "Y",
+  "axis_idx": 1,
+  "is_round": true,
+  "circularity_score": 0.9976,
+  "mean_aspect_ratio": 1.0106,
+  "round_station_fraction": 1.0,
+  "total_height_mm": 199.430168,
+  "expressions": [
+    [
+      "BODY_MAX_DIA",
+      "22.481"
+    ],
+    [
+      "BASE_BLEND_R",
+      "1.500"
+    ],
+    [
+      "ZONE1_START",
+      "-100.001"
+    ],
+    [
+      "ZONE1_HEIGHT",
+      "3.966"
+    ],
+    [
+      "ZONE1_BASE_DIA",
+      "BODY_MAX_DIA * 0.9183"
+    ],
+    [
+      "ZONE1_TOP_DIA",
+      "BODY_MAX_DIA"
+    ],
+    [
+      "ZONE1_BASE_R",
+      "ZONE1_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE1_TOP_R",
+      "ZONE1_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE2_START",
+      "ZONE1_START + ZONE1_HEIGHT"
+    ],
+    [
+      "ZONE2_HEIGHT",
+      "115.692"
+    ],
+    [
+      "ZONE2_BASE_DIA",
+      "ZONE1_TOP_DIA"
+    ],
+    [
+      "ZONE2_TOP_DIA",
+      "BODY_MAX_DIA * 0.9794"
+    ],
+    [
+      "ZONE2_BASE_R",
+      "ZONE2_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE2_TOP_R",
+      "ZONE2_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE3_START",
+      "ZONE2_START + ZONE2_HEIGHT"
+    ],
+    [
+      "ZONE3_HEIGHT",
+      "76.796"
+    ],
+    [
+      "ZONE3_BASE_DIA",
+      "ZONE2_TOP_DIA"
+    ],
+    [
+      "ZONE3_TOP_DIA",
+      "BODY_MAX_DIA * 0.9657"
+    ],
+    [
+      "ZONE3_BASE_R",
+      "ZONE3_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE3_TOP_R",
+      "ZONE3_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE4_START",
+      "ZONE3_START + ZONE3_HEIGHT"
+    ],
+    [
+      "ZONE4_HEIGHT",
+      "2.976"
+    ],
+    [
+      "ZONE4_BASE_DIA",
+      "ZONE3_TOP_DIA"
+    ],
+    [
+      "ZONE4_TOP_DIA",
+      "BODY_MAX_DIA * 0.8429"
+    ],
+    [
+      "ZONE4_BASE_R",
+      "ZONE4_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE4_TOP_R",
+      "ZONE4_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE4_MID_DIA",
+      "BODY_MAX_DIA * 0.9494"
+    ],
+    [
+      "ZONE4_MID_R",
+      "ZONE4_MID_DIA / 2.0"
+    ],
+    [
+      "GROOVE_HEIGHT",
+      "3.390"
+    ],
+    [
+      "GROOVE_DEPTH",
+      "0.495"
+    ]
+  ],
+  "zones": [
+    {
+      "zone_idx": 1,
+      "name": "BASE_BEVEL",
+      "role": "BASE",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE1_START"
+        },
+        {
+          "x": "ZONE1_BASE_R",
+          "y": "ZONE1_START"
+        },
+        {
+          "x": "ZONE1_TOP_R",
+          "y": "ZONE1_START + ZONE1_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE1_START + ZONE1_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE1_BASE_R",
+      "r_end_exp": "ZONE1_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE1_START",
+      "height_exp": "ZONE1_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE1_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE1_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE1_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": false,
+      "blend_radius_exp": "BASE_BLEND_R"
+    },
+    {
+      "zone_idx": 2,
+      "name": "MAIN_BARREL_LOWER",
+      "role": "BARREL",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE2_START"
+        },
+        {
+          "x": "ZONE2_BASE_R",
+          "y": "ZONE2_START"
+        },
+        {
+          "x": "ZONE2_TOP_R",
+          "y": "ZONE2_START + ZONE2_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE2_START + ZONE2_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE2_BASE_R",
+      "r_end_exp": "ZONE2_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE2_START",
+      "height_exp": "ZONE2_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE2_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE2_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE2_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 3,
+      "name": "MAIN_BARREL_UPPER",
+      "role": "BARREL",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE3_START"
+        },
+        {
+          "x": "ZONE3_BASE_R",
+          "y": "ZONE3_START"
+        },
+        {
+          "x": "ZONE3_TOP_R",
+          "y": "ZONE3_START + ZONE3_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE3_START + ZONE3_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE3_BASE_R",
+      "r_end_exp": "ZONE3_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE3_START",
+      "height_exp": "ZONE3_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE3_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE3_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE3_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 4,
+      "name": "CAP_CROWN",
+      "role": "CAP",
+      "segment_type": "ARC",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE4_START"
+        },
+        {
+          "x": "ZONE4_BASE_R",
+          "y": "ZONE4_START"
+        },
+        {
+          "x": "ZONE4_TOP_R",
+          "y": "ZONE4_START + ZONE4_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE4_START + ZONE4_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE4_BASE_R",
+      "r_end_exp": "ZONE4_TOP_R",
+      "r_mid_exp": "ZONE4_MID_R",
+      "z_start_exp": "ZONE4_START",
+      "height_exp": "ZONE4_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE4_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE4_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE4_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    }
+  ],
+  "metadata": {
+    "product_type": "liquid_lipstick_container",
+    "image_file": "img/Elle18-Liquid-Lipstick.jpg",
+    "visual_observations": [
+      "Slender tall cylindrical cosmetic packaging for Elle 18 Liquid Lip Colour (~199.4 mm length, ~22.6 mm diameter).",
+      "Lower body: Pink cylindrical liquid lipstick container vial (~118 mm height) with branding graphics.",
+      "Upper body: Elongated cylindrical black twist cap / wand applicator handle (~78 mm height) with graphic face illustration.",
+      "Parting line / seam: Clean horizontal parting line interface between the bottle reservoir and the twist-off cap wand.",
+      "Base: Bottom circular planar face with a narrow rounded bevel / corner blend (~3.5 mm).",
+      "Cap Crown: Top flat circular face with subtle peripheral bevel / corner blend (~3.0 mm)."
+    ],
+    "corrections_applied": [
+      "Relabeled Zone 1 from generic BODY to BASE_BEVEL with role BASE (bottom chamfered foot transition).",
+      "Relabeled Zone 2 from generic BODY to MAIN_BARREL with role BARREL (combined reservoir vial and wand handle cylindrical body).",
+      "Relabeled Zone 3 from generic BODY to CAP_CROWN with role CAP (top cap crown bevel)."
+    ],
+    "directives": {
+      "split_points": [
+        0.6
+      ],
+      "groove": {
+        "enabled": true,
+        "position_ratio": 0.6,
+        "height_ratio": 0.017,
+        "depth_ratio": 0.045,
+        "name": "PARTING_GROOVE"
+      },
+      "ribs": null,
+      "edge_style": {
+        "base": "chamfer",
+        "crown": "fillet"
+      }
+    },
+    "zone_labels": [
+      {
+        "zone_idx": 1,
+        "role": "BASE",
+        "name": "BASE_BEVEL",
+        "suggested_group": "CONTAINER_BASE",
+        "notes": "Bottom chamfered edge transition"
+      },
+      {
+        "zone_idx": 2,
+        "role": "BARREL",
+        "name": "MAIN_BARREL",
+        "suggested_group": "BODY_ASSEMBLY",
+        "notes": "Main tall cylindrical body spanning bottle reservoir and wand cap"
+      },
+      {
+        "zone_idx": 3,
+        "role": "CAP",
+        "name": "CAP_CROWN",
+        "suggested_group": "CAP_ASSEMBLY",
+        "notes": "Top flat circular face and peripheral bevel"
+      }
+    ],
+    "suggested_groupings": {
+      "CONTAINER_BASE": [
+        1
+      ],
+      "BODY_ASSEMBLY": [
+        2
+      ],
+      "CAP_ASSEMBLY": [
+        3
+      ]
+    },
+    "notes": "Visual inspection of img/Elle18-Liquid-Lipstick.jpg confirms axisymmetric cylindrical liquid lipstick packaging."
+  },
+  "groove": {
+    "enabled": true,
+    "name": "PARTING_GROOVE",
+    "y_start": 17.962,
+    "y_center": 19.657100799999995,
+    "height": 3.39,
+    "depth": 0.495,
+    "nominal_r": 11.009,
+    "groove_r": 10.514,
+    "groove_dia": 21.028
+  },
+  "edge_style": {
+    "base": "chamfer",
+    "crown": "fillet"
+  }
+}

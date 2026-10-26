@@ -11,6 +11,7 @@ def test_tools_registered():
 def test_create_part():
     r = file_ops.create_part("test.prt")
     assert isinstance(r, ToolResult)
+    assert "Not yet written to disk" in r.message
     assert "open_current_nx_result.cmd" in r.message
 
 def test_open_part():
@@ -22,6 +23,7 @@ def test_save_part():
     file_ops.create_part("test.prt")
     r = file_ops.save_part()
     assert isinstance(r, ToolResult)
+    assert "Part saved to disk" in r.message
     assert "open_current_nx_result.cmd" in r.message
 
 
@@ -31,6 +33,28 @@ def test_save_part_as():
     assert isinstance(r, ToolResult)
     assert "test_renamed.prt" in r.message
     assert "open_current_nx_result.cmd" in r.message
+
+
+def test_save_part_as_active_part_error(monkeypatch):
+    import sys
+    from unittest.mock import MagicMock
+    if "NXOpen" not in sys.modules:
+        sys.modules["NXOpen"] = MagicMock()
+        sys.modules["NXOpen.UF"] = MagicMock()
+    from nx_mcp.bridge import nx_bridge
+
+    mock_session = MagicMock()
+    mock_work_part = MagicMock()
+    mock_work_part.FullPath = r"C:\fake\test_active.prt"
+    mock_work_part.SaveAs.side_effect = Exception("NXException: File already exists (Error code 1020004)")
+    mock_session.Parts.Work = mock_work_part
+    mock_session.Parts.ToArray.return_value = [mock_work_part]
+
+    monkeypatch.setattr(nx_bridge, "SESSION", mock_session)
+    res = nx_bridge.save_part_as(r"C:\fake\test_active.prt")
+    assert res["ok"] is False
+    assert "Call save_part() instead of save_part_as()" in res["error"]
+    assert "does not exist on disk" in res["error"]
 
 def test_export_step():
     r = file_ops.export_step("out.stp")
@@ -365,6 +389,30 @@ def test_create_cube_centered():
     r2 = modeling.create_cube(size=10.0, x=0.0, y=0.0, z=0.0, centered=True)
     assert isinstance(r2, ToolResult)
     assert "at (-5.0,-5.0,-5.0)" in r2.message
+
+
+def test_create_cuboid_centered():
+    # Corner-based placement (default)
+    r1 = modeling.create_cuboid(length=30.0, width=30.0, height=30.0, x=0.0, y=0.0, z=0.0, centered=False)
+    assert isinstance(r1, ToolResult)
+    assert "at (0.0,0.0,0.0)" in r1.message
+
+    # Centered placement
+    r2 = modeling.create_cuboid(length=30.0, width=30.0, height=30.0, x=0.0, y=0.0, z=0.0, centered=True)
+    assert isinstance(r2, ToolResult)
+    assert "(-15.0,-15.0,-15.0)" in r2.message
+
+
+def test_delete_body():
+    r = modeling.delete_body("body_1")
+    assert isinstance(r, ToolResult)
+    assert "Deleted body" in r.message
+
+
+def test_delete_feature():
+    r = modeling.delete_feature("feature_1")
+    assert isinstance(r, ToolResult)
+    assert "Deleted feature" in r.message
 
 
 def test_curve_group_resolution():

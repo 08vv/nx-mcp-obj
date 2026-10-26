@@ -72,8 +72,9 @@ CATEGORY_TOOLS = {
         "create_real_sketch", "extrude_from_sketch", "add_hole_nx",
         "create_rib", "pattern_circular", "edge_blend", "chamfer",
         "revolve_cut", "extrude_cut", "mirror_body_feature",
-        "boolean_combine", "split_body", "emboss_body", "create_gear",
+        "boolean_combine", "split_body", "trim_body", "emboss_body", "create_gear",
         "extrude_profile", "loft", "pattern", "shell",
+        "delete_body", "delete_feature",
     ],
     "Sketch": [
         "create_sketch", "draw_line", "draw_rectangle", "draw_circle",
@@ -95,10 +96,10 @@ CATEGORY_TOOLS = {
         "fill_surface", "bounded_plane", "patch_openings",
         "sheet_from_curve", "law_extension",
         "studio_surface", "styled_sweep", "section_surface",
-        "aesthetic_face_blend", "bridge_surface", "blend_corner",
+        "aesthetic_face_blend", "bridge_surface", "transition_surface", "blend_corner",
         "styled_corner", "four_point_surface", "rapid_surfacing",
         "fit_surface", "variable_offset_face", "extension_surface",
-        "silhouette_flange", "face_pairs", "user_defined_surface",
+        "silhouette_flange", "mid_surface", "user_defined_surface",
         "offset_surface_advanced", "bisector_surface",
         "surface_from_poles", "surface_through_points", "ribbon_builder",
     ],
@@ -110,6 +111,7 @@ CATEGORY_TOOLS = {
         "get_dependency_graph", "get_downstream", "get_upstream",
         "validate_dependency_graph", "get_relevant_nx_tools",
         "inspect_api", "inspect_part", "run_nx_journal_code",
+        "analyze_obj_mesh",
     ],
 }
 
@@ -142,7 +144,7 @@ CATEGORY_KEYWORDS = {
         "rib", "web", "edge blend", "expression", "parameter",
         "cut", "pocket", "boss", "solid", "block", "split", "emboss",
         "shell", "draft", "gear", "create expression", "list expressions",
-        "bolt circle", "bolt pattern",
+        "bolt circle", "bolt pattern", "delete body", "delete feature", "remove body",
     ],
     "Sketch": [
         "sketch", "draw", "line", "rectangle", "circle", "arc",
@@ -169,7 +171,7 @@ CATEGORY_KEYWORDS = {
         "upstream", "downstream", "graph integrity", "cad spec", "spec",
         "recipe", "run recipe", "run spec", "validate spec", "plausibility",
         "postcheck", "inspect api", "inspect part", "journal code",
-        "relevant tools",
+        "relevant tools", "analyze mesh", "analyze obj", "obj analysis",
     ],
 }
 

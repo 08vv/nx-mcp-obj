@@ -1,0 +1,2 @@
+mesh,set,has_image,image,route,build_ok,C1,C2,C3,C4,C5,C6,C7,C8,vol_error_pct,worst_sec_error_pct,surface_mean_dist_mm,surface_p95_dist_mm,surface_max_dist_mm,profile_max_error_pct,final_result,failure_category,reason
+Rin_soap_reduced.obj,dev,True,Rin_soap.jpg,UNSUPPORTED,False,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A,,,,,,,UNSUPPORTED,UNSUPPORTED_NEAR_MISS,UNSUPPORTED [NEAR_MISS (5-10%)]: Range 1 [Y=-100.03 to 99.51mm] fit error 6.84% (closest primitive: UNSUPPORTED)

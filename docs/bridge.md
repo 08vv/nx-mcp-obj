@@ -22,22 +22,22 @@ All production communication occurs over a local loopback TCP socket on **port 4
 │  - Socket timeout:      │                                         │  - ui.ProcessDeviceEvents() keepalive│
 │    60s standard         │◀────────────────────────────────────────│  - handle_line() with deep snapshot  │
 │    300s journal/recipe  │   JSON-Lines Response                   │  - dispatch() to NXOpen Builders     │
-│  - Launch timeout: 180s │   {"ok": true, "message": "..."}\n      │  - Commits geometry & saves part     │
+│  - Launch timeout: 180s │   {"ok": true, "message": "..."}\n      │  - Commits geometry & updates state  │
 └─────────────────────────┘                                         └──────────────────────────────────────┘
 ```
 
 ### Execution Protocol
 
 1. `runner.py` calls `try_connect_socket(LIVE_PORT)` to verify connectivity.
-2. If disconnected, `launch_interactive_nx()` acquires `bridge.launching.lock`, launches `ugraf.exe -auto=...nx_bridge.py`, and waits for socket readiness.
+2. If disconnected, `launch_interactive_nx()` acquires `bridge.launching.lock`, launches `ugraf.exe -auto=...nx_bridge.py`, and monitors socket readiness.
 3. `runner.py` transmits a single JSON line: `{"tool": "<name>", "args": {<kwargs>}}\n`.
-4. `nx_bridge.py` receives the stream, parses the JSON command, and creates an in-memory backup of `_state`.
-5. `dispatch()` normalizes arguments and invokes the corresponding NXOpen handler.
+4. `nx_bridge.py` receives the stream, parses the JSON command, and creates an in-memory backup snapshot of `_state`.
+5. `dispatch()` normalizes arguments and invokes the corresponding NXOpen builder handler.
 6. The handler builds the parametric feature, creates NX expressions, commits the builder, and updates geometry caches.
 7. `nx_bridge.py` responds with a JSON line: `{"ok": true, "message": "<summary>", "filepath": "<path>"}\n`.
 8. If an exception occurs, `handle_line()` catches the error, restores `_state` to its pre-call snapshot, and returns `{"ok": false, "error": "<traceback>"}`.
 
-> **Execution Model Note**: Legacy batch stdio execution (`run_journal.exe` batch mode) is deprecated due to stdio unreliability in headless NX journals. In current code, if a live socket cannot be established, the system returns `NX_PREWARM_REQUIRED_ERROR`, directing the user to run `python prewarm_nx.py`.
+> **Execution Model Note**: Legacy batch stdio execution (`run_journal.exe` batch mode) is deprecated due to stdio buffering unreliability in headless NX journals. In current code, if a live socket cannot be established, the system returns `NX_PREWARM_REQUIRED_ERROR`, directing the user to run `python prewarm_nx.py`.
 
 ---
 
@@ -60,7 +60,7 @@ _state = {
     "bodies": {},               # Dict[str, Body] — name -> body lookup
     "sketches": {},             # Dict[str, Sketch] — name -> sketch lookup
     "active_sketch": None,      # Currently active NX Sketch object
-    "sketch_origin": [0,0,0],   # 3D origin offset for active sketch plane
+    "sketch_origin": [0.0,0.0,0.0], # 3D origin offset for active sketch plane
     "sketch_rotation": 0.0,     # Rotation (deg) for active sketch plane
 }
 ```
@@ -116,7 +116,7 @@ def handle_line(line):
 
 When tools reference features, bodies, or edges (e.g. `"target"`, `"last"`, `"CUBOID_1"`, `"vertical_edges"`), resolution helpers dynamically locate the NX objects:
 
-- **`_resolve_body(reference)`**: Resolves `"last"`, `"body_1"`, or exact/fuzzy body names via `_normalize_name()`.
+- **`_resolve_body(reference)`**: Resolves `"last"`, `"body_1"`, or exact/fuzzy body names via `_normalize_name()`. Auto-selects the lone solid body if only one exists in the part.
 - **`_resolve_feature(reference)`**: Resolves `"last"`, `"previous"`, or feature names by checking `_state["features"]` and scanning `work_part.Features`.
 - **`_resolve_edges(body_ref, edge_ref)`**: Uses geometric boundary queries (`UF_SESSION.Modeling.AskBndbox()`) to filter edges matching geometric criteria (`"all"`, `"outer_edges"`, `"vertical_edges"`, `"top_edges"`, `"bottom_edges"`, `"x_aligned_edges"`, `"y_aligned_edges"`, `"z_aligned_edges"`).
 
@@ -138,7 +138,7 @@ Post-operation edge count validation confirms that material was genuinely remove
 ### 7. Curve Subsystem (`draw_spline`, `offset_curve`, `close_curve_region`)
 
 - **`draw_spline(points, is_periodic)`**: Instantiates `NXOpen.Features.StudioSplineBuilderEx` to construct smooth, multi-point B-splines on the active sketch plane or in 3D world space.
-- **`offset_curve(curve_reference, offset_distance_start, offset_distance_end)`**: Computes normal offsets across spline defining poles to generate constant or variable-width offset profiles.
+- **`offset_curve(curve_reference, offset_distance_start, offset_distance_end)`**: Computes normal offsets across spline defining poles to generate constant or variable-width offset profiles. Automatically unrolls composite curve objects to maintain continuity.
 - **`close_curve_region(curve_references, method)`**: Connects curve endpoints with bridge segments to produce a watertight closed region ready for `extrude` or `extrude_cut`.
 
 ### 8. Python Journal Scripting (`exec_python_code` / `run_nx_journal_code`)
@@ -160,9 +160,20 @@ The `dispatch(command)` function acts as the internal router:
 
 ---
 
+## Recent Architectural Hardening & Bug Fixes
+
+- **RC3 Body Registration**: Fixed feature body lookup ensuring bodies created by composite features (e.g. hole chains, pattern features) are reliably registered in `_state["bodies"]`.
+- **Sequential Hole Tracking**: Preserves active target body references across multi-hole sequences.
+- **Spline-to-Offset Curve Unrolling**: Fixes curve object flattening during spline offset chaining.
+- **Pattern Body Preservation**: Ensures the primary target body is preserved when circular or linear patterns produce multiple tool bodies.
+- **Sketch Z-Offset Consistency**: Ensures `draw_rounded_rectangle` and 2D curves correctly respect `z_offset` of the active sketch plane.
+
+---
+
 ## Related Documentation
 
 - [runner.md](runner.md) — Process manager, locks, and launch configurations.
 - [state.md](state.md) — Deep dive into state management and geometry caches.
 - [parametric.md](parametric.md) — NX Expressions and builder patterns.
+- [cad_spec_system.md](cad_spec_system.md) — Declarative CAD Spec DAG engine.
 - [workflow.md](workflow.md) — Request lifecycle from client to NX and back.

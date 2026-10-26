@@ -39,23 +39,38 @@ def boolean_combine(
 
 
 @mcp_tool("trim_sheet", "Trim a sheet body using a boundary curve or sheet")
-def trim_sheet(target_body: str = "last", boundary_sketch: str = "last"):
+def trim_sheet(
+    target_sheet: str = "last",
+    boundary: str = "last",
+    target_body: str = None,
+    boundary_sketch: str = None,
+    sheet_body: str = None,
+):
     """
     Trims a target sheet body using a specified boundary sketch or sheet.
 
     Args:
-        target_body (str): The identifier of the sheet body to be trimmed.
-        boundary_sketch (str): The identifier of the boundary curve or sheet to trim with.
+        target_sheet (str): The identifier of the sheet body to be trimmed.
+        boundary (str): The identifier of the boundary curve or sheet to trim with.
+        target_body (str): Alias for target_sheet.
+        boundary_sketch (str): Alias for boundary.
+        sheet_body (str): Alias for target_sheet.
 
     Returns:
         ToolResult: A confirmation message of the trim operation.
     """
+    if sheet_body is not None:
+        target_sheet = sheet_body
+    elif target_body is not None:
+        target_sheet = target_body
+    if boundary_sketch is not None:
+        boundary = boundary_sketch
     try:
         if not _use_mock_nxopen():
             return _bridge_result(
                 runner.call_nx(
                     "trim_sheet",
-                    {"target_body": target_body, "boundary_sketch": boundary_sketch},
+                    {"target_sheet": target_sheet, "boundary": boundary},
                 )
             )
         return ToolResult("Trimmed sheet body")
@@ -159,18 +174,26 @@ def sew_sheets(target_sheet: str = "last", tool_sheets: str = "last"):
         return ToolError(str(e))
 
 
-@mcp_tool("split_body", "Split a solid or sheet body using a plane or face")
+@mcp_tool("split_body", "Split a solid or sheet body using a tool body/sheet or plane/face")
 def split_body(
     target_body: str = "last",
+    splitting_tool: str = None,
+    splitting_plane: str = None,
+    plane: str = None,
+    z: float = 0.0,
     tool_face_x: float = 0.0,
     tool_face_y: float = 0.0,
     tool_face_z: float = 0.0,
 ):
     """
-    Splits a solid or sheet body into separate bodies using a tool face or plane.
+    Splits a solid or sheet body into separate bodies using a tool body/sheet or plane/face.
 
     Args:
         target_body (str): The identifier of the body to split.
+        splitting_tool (str): The identifier of the splitting tool body or sheet.
+        splitting_plane (str): Alias for splitting_tool or coordinate plane reference.
+        plane (str): Coordinate plane string (e.g. 'XY', 'XZ', 'YZ').
+        z (float): Coordinate plane offset distance along normal.
         tool_face_x (float): The X coordinate of the tool face or plane.
         tool_face_y (float): The Y coordinate of the tool face or plane.
         tool_face_z (float): The Z coordinate of the tool face or plane.
@@ -178,23 +201,53 @@ def split_body(
     Returns:
         ToolResult: A confirmation message of the split operation.
     """
-    tool_face_x = float(tool_face_x)
-    tool_face_y = float(tool_face_y)
-    tool_face_z = float(tool_face_z)
+    tool_ref = splitting_tool or splitting_plane
+    try:
+        if not _use_mock_nxopen():
+            params = {
+                "target_body": target_body,
+                "tool_face_x": float(tool_face_x),
+                "tool_face_y": float(tool_face_y),
+                "tool_face_z": float(tool_face_z),
+            }
+            if tool_ref:
+                params["splitting_tool"] = tool_ref
+            if plane:
+                params["plane"] = plane
+                params["z"] = float(z)
+            return _bridge_result(runner.call_nx("split_body", params))
+        return ToolResult("Body split successfully")
+    except Exception as e:
+        return ToolError(str(e))
+
+
+@mcp_tool("trim_body", "Trim a solid body using a cutting tool sheet body or datum plane")
+def trim_body(
+    target: str = "previous",
+    tool: str = "last",
+    flip_direction: bool = False,
+):
+    """
+    Trims a solid body using a cutting tool (sheet body, datum plane, or face),
+    removing material on one side, resulting in ONE modified solid body.
+
+    Args:
+        target (str): The identifier of the target solid body to trim.
+        tool (str): The identifier of the cutting tool body, sheet, or plane.
+        flip_direction (bool): Whether to flip the trim direction to discard the opposite side.
+
+    Returns:
+        ToolResult: A confirmation message of the trim body operation.
+    """
     try:
         if not _use_mock_nxopen():
             return _bridge_result(
                 runner.call_nx(
-                    "split_body",
-                    {
-                        "target_body": target_body,
-                        "tool_face_x": tool_face_x,
-                        "tool_face_y": tool_face_y,
-                        "tool_face_z": tool_face_z,
-                    },
+                    "trim_body",
+                    {"target": target, "tool": tool, "flip_direction": flip_direction},
                 )
             )
-        return ToolResult("Body split successfully")
+        return ToolResult("Solid body trimmed successfully")
     except Exception as e:
         return ToolError(str(e))
 
@@ -466,20 +519,24 @@ def unsew_sheets(
 
 
 @mcp_tool("make_solid", "Convert closed sewn sheet body to solid body")
-def make_solid(target_sheet: str = "last"):
+def make_solid(target_sheet: str = "last", tool_sheets: str = None):
     """
-    Converts a fully closed and sewn sheet body into a solid body.
+    Converts a fully closed and sewn sheet body into a solid body, or sews multiple bounding sheets into a solid.
 
     Args:
-        target_sheet (str): The identifier of the closed sheet body to convert.
+        target_sheet (str): The primary sheet body to convert.
+        tool_sheets (str): Optional secondary sheet bodies to sew together into a solid.
 
     Returns:
         ToolResult: A confirmation message of the solid conversion.
     """
     try:
         if not _use_mock_nxopen():
+            payload = {"target_sheet": target_sheet}
+            if tool_sheets is not None:
+                payload["tool_sheets"] = tool_sheets
             return _bridge_result(
-                runner.call_nx("make_solid", {"target_sheet": target_sheet})
+                runner.call_nx("make_solid", payload)
             )
         return ToolResult("Sewn sheet body successfully converted to Solid body")
     except Exception as e:

@@ -1,0 +1,1096 @@
+{
+  "source_mesh": "Oziva4_reduced.obj",
+  "global_shape_family": "AXISYMMETRIC_REVOLVE",
+  "primary_axis": "Y",
+  "axis_idx": 1,
+  "is_round": true,
+  "circularity_score": 0.9923,
+  "mean_aspect_ratio": 1.0059,
+  "round_station_fraction": 1.0,
+  "total_height_mm": 199.3896,
+  "expressions": [
+    [
+      "BODY_MAX_DIA",
+      "84.130"
+    ],
+    [
+      "BASE_BLEND_R",
+      "1.500"
+    ],
+    [
+      "ZONE1_START",
+      "-99.962"
+    ],
+    [
+      "ZONE1_HEIGHT",
+      "6.934"
+    ],
+    [
+      "ZONE1_BASE_DIA",
+      "BODY_MAX_DIA * 0.9605"
+    ],
+    [
+      "ZONE1_TOP_DIA",
+      "BODY_MAX_DIA * 0.9862"
+    ],
+    [
+      "ZONE1_BASE_R",
+      "ZONE1_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE1_TOP_R",
+      "ZONE1_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE2_START",
+      "ZONE1_START + ZONE1_HEIGHT"
+    ],
+    [
+      "ZONE2_HEIGHT",
+      "99.440"
+    ],
+    [
+      "ZONE2_BASE_DIA",
+      "ZONE1_TOP_DIA"
+    ],
+    [
+      "ZONE2_TOP_DIA",
+      "BODY_MAX_DIA"
+    ],
+    [
+      "ZONE2_BASE_R",
+      "ZONE2_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE2_TOP_R",
+      "ZONE2_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE2_MID_DIA",
+      "BODY_MAX_DIA * 0.9688"
+    ],
+    [
+      "ZONE2_MID_R",
+      "ZONE2_MID_DIA / 2.0"
+    ],
+    [
+      "ZONE3_START",
+      "ZONE2_START + ZONE2_HEIGHT"
+    ],
+    [
+      "ZONE3_HEIGHT",
+      "6.431"
+    ],
+    [
+      "ZONE3_BASE_DIA",
+      "ZONE2_TOP_DIA"
+    ],
+    [
+      "ZONE3_TOP_DIA",
+      "BODY_MAX_DIA * 0.9847"
+    ],
+    [
+      "ZONE3_BASE_R",
+      "ZONE3_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE3_TOP_R",
+      "ZONE3_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE4_START",
+      "ZONE3_START + ZONE3_HEIGHT"
+    ],
+    [
+      "ZONE4_HEIGHT",
+      "2.474"
+    ],
+    [
+      "ZONE4_BASE_DIA",
+      "ZONE3_TOP_DIA"
+    ],
+    [
+      "ZONE4_TOP_DIA",
+      "BODY_MAX_DIA * 0.9201"
+    ],
+    [
+      "ZONE4_BASE_R",
+      "ZONE4_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE4_TOP_R",
+      "ZONE4_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE5_START",
+      "ZONE4_START + ZONE4_HEIGHT"
+    ],
+    [
+      "ZONE5_HEIGHT",
+      "1.979"
+    ],
+    [
+      "ZONE5_BASE_DIA",
+      "ZONE4_TOP_DIA"
+    ],
+    [
+      "ZONE5_TOP_DIA",
+      "BODY_MAX_DIA * 0.6775"
+    ],
+    [
+      "ZONE5_BASE_R",
+      "ZONE5_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE5_TOP_R",
+      "ZONE5_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE5_MID_DIA",
+      "BODY_MAX_DIA * 0.8282"
+    ],
+    [
+      "ZONE5_MID_R",
+      "ZONE5_MID_DIA / 2.0"
+    ],
+    [
+      "ZONE6_START",
+      "ZONE5_START + ZONE5_HEIGHT"
+    ],
+    [
+      "ZONE6_HEIGHT",
+      "0.989"
+    ],
+    [
+      "ZONE6_BASE_DIA",
+      "ZONE5_TOP_DIA"
+    ],
+    [
+      "ZONE6_TOP_DIA",
+      "BODY_MAX_DIA * 0.6377"
+    ],
+    [
+      "ZONE6_BASE_R",
+      "ZONE6_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE6_TOP_R",
+      "ZONE6_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE7_START",
+      "ZONE6_START + ZONE6_HEIGHT"
+    ],
+    [
+      "ZONE7_HEIGHT",
+      "11.356"
+    ],
+    [
+      "ZONE7_BASE_DIA",
+      "ZONE6_TOP_DIA"
+    ],
+    [
+      "ZONE7_TOP_DIA",
+      "BODY_MAX_DIA * 0.6373"
+    ],
+    [
+      "ZONE7_BASE_R",
+      "ZONE7_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE7_TOP_R",
+      "ZONE7_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE8_START",
+      "ZONE7_START + ZONE7_HEIGHT"
+    ],
+    [
+      "ZONE8_HEIGHT",
+      "23.769"
+    ],
+    [
+      "ZONE8_BASE_DIA",
+      "ZONE7_TOP_DIA"
+    ],
+    [
+      "ZONE8_TOP_DIA",
+      "BODY_MAX_DIA * 0.6367"
+    ],
+    [
+      "ZONE8_BASE_R",
+      "ZONE8_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE8_TOP_R",
+      "ZONE8_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE9_START",
+      "ZONE8_START + ZONE8_HEIGHT"
+    ],
+    [
+      "ZONE9_HEIGHT",
+      "1.484"
+    ],
+    [
+      "ZONE9_BASE_DIA",
+      "ZONE8_TOP_DIA"
+    ],
+    [
+      "ZONE9_TOP_DIA",
+      "BODY_MAX_DIA * 0.3986"
+    ],
+    [
+      "ZONE9_BASE_R",
+      "ZONE9_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE9_TOP_R",
+      "ZONE9_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE9_MID_DIA",
+      "BODY_MAX_DIA * 0.6206"
+    ],
+    [
+      "ZONE9_MID_R",
+      "ZONE9_MID_DIA / 2.0"
+    ],
+    [
+      "ZONE10_START",
+      "ZONE9_START + ZONE9_HEIGHT"
+    ],
+    [
+      "ZONE10_HEIGHT",
+      "8.905"
+    ],
+    [
+      "ZONE10_BASE_DIA",
+      "ZONE9_TOP_DIA"
+    ],
+    [
+      "ZONE10_TOP_DIA",
+      "BODY_MAX_DIA * 0.2991"
+    ],
+    [
+      "ZONE10_BASE_R",
+      "ZONE10_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE10_TOP_R",
+      "ZONE10_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE11_START",
+      "ZONE10_START + ZONE10_HEIGHT"
+    ],
+    [
+      "ZONE11_HEIGHT",
+      "22.757"
+    ],
+    [
+      "ZONE11_BASE_DIA",
+      "ZONE10_TOP_DIA"
+    ],
+    [
+      "ZONE11_TOP_DIA",
+      "BODY_MAX_DIA * 0.2977"
+    ],
+    [
+      "ZONE11_BASE_R",
+      "ZONE11_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE11_TOP_R",
+      "ZONE11_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE12_START",
+      "ZONE11_START + ZONE11_HEIGHT"
+    ],
+    [
+      "ZONE12_HEIGHT",
+      "4.453"
+    ],
+    [
+      "ZONE12_BASE_DIA",
+      "ZONE11_TOP_DIA"
+    ],
+    [
+      "ZONE12_TOP_DIA",
+      "BODY_MAX_DIA * 0.2791"
+    ],
+    [
+      "ZONE12_BASE_R",
+      "ZONE12_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE12_TOP_R",
+      "ZONE12_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE13_START",
+      "ZONE12_START + ZONE12_HEIGHT"
+    ],
+    [
+      "ZONE13_HEIGHT",
+      "8.418"
+    ],
+    [
+      "ZONE13_BASE_DIA",
+      "ZONE12_TOP_DIA"
+    ],
+    [
+      "ZONE13_TOP_DIA",
+      "BODY_MAX_DIA * 0.1282"
+    ],
+    [
+      "ZONE13_BASE_R",
+      "ZONE13_BASE_DIA / 2.0"
+    ],
+    [
+      "ZONE13_TOP_R",
+      "ZONE13_TOP_DIA / 2.0"
+    ],
+    [
+      "ZONE13_MID_DIA",
+      "BODY_MAX_DIA * 0.2283"
+    ],
+    [
+      "ZONE13_MID_R",
+      "ZONE13_MID_DIA / 2.0"
+    ]
+  ],
+  "zones": [
+    {
+      "zone_idx": 1,
+      "name": "BODY_1",
+      "role": "BODY",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE1_START"
+        },
+        {
+          "x": "ZONE1_BASE_R",
+          "y": "ZONE1_START"
+        },
+        {
+          "x": "ZONE1_TOP_R",
+          "y": "ZONE1_START + ZONE1_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE1_START + ZONE1_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE1_BASE_R",
+      "r_end_exp": "ZONE1_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE1_START",
+      "height_exp": "ZONE1_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE1_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE1_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE1_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": false,
+      "blend_radius_exp": "BASE_BLEND_R"
+    },
+    {
+      "zone_idx": 2,
+      "name": "BODY_2",
+      "role": "BODY",
+      "segment_type": "ARC",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE2_START"
+        },
+        {
+          "x": "ZONE2_BASE_R",
+          "y": "ZONE2_START"
+        },
+        {
+          "x": "ZONE2_TOP_R",
+          "y": "ZONE2_START + ZONE2_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE2_START + ZONE2_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE2_BASE_R",
+      "r_end_exp": "ZONE2_TOP_R",
+      "r_mid_exp": "ZONE2_MID_R",
+      "z_start_exp": "ZONE2_START",
+      "height_exp": "ZONE2_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE2_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE2_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE2_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 3,
+      "name": "BODY_3",
+      "role": "BODY",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE3_START"
+        },
+        {
+          "x": "ZONE3_BASE_R",
+          "y": "ZONE3_START"
+        },
+        {
+          "x": "ZONE3_TOP_R",
+          "y": "ZONE3_START + ZONE3_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE3_START + ZONE3_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE3_BASE_R",
+      "r_end_exp": "ZONE3_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE3_START",
+      "height_exp": "ZONE3_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE3_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE3_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE3_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 4,
+      "name": "BODY_4",
+      "role": "BODY",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE4_START"
+        },
+        {
+          "x": "ZONE4_BASE_R",
+          "y": "ZONE4_START"
+        },
+        {
+          "x": "ZONE4_TOP_R",
+          "y": "ZONE4_START + ZONE4_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE4_START + ZONE4_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE4_BASE_R",
+      "r_end_exp": "ZONE4_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE4_START",
+      "height_exp": "ZONE4_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE4_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE4_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE4_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 5,
+      "name": "SHOULDER_5",
+      "role": "SHOULDER",
+      "segment_type": "ARC",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE5_START"
+        },
+        {
+          "x": "ZONE5_BASE_R",
+          "y": "ZONE5_START"
+        },
+        {
+          "x": "ZONE5_TOP_R",
+          "y": "ZONE5_START + ZONE5_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE5_START + ZONE5_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE5_BASE_R",
+      "r_end_exp": "ZONE5_TOP_R",
+      "r_mid_exp": "ZONE5_MID_R",
+      "z_start_exp": "ZONE5_START",
+      "height_exp": "ZONE5_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE5_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE5_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE5_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 6,
+      "name": "COLLAR_6",
+      "role": "COLLAR",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE6_START"
+        },
+        {
+          "x": "ZONE6_BASE_R",
+          "y": "ZONE6_START"
+        },
+        {
+          "x": "ZONE6_TOP_R",
+          "y": "ZONE6_START + ZONE6_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE6_START + ZONE6_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE6_BASE_R",
+      "r_end_exp": "ZONE6_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE6_START",
+      "height_exp": "ZONE6_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE6_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE6_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE6_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 7,
+      "name": "COLLAR_7_LOWER",
+      "role": "COLLAR",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE7_START"
+        },
+        {
+          "x": "ZONE7_BASE_R",
+          "y": "ZONE7_START"
+        },
+        {
+          "x": "ZONE7_TOP_R",
+          "y": "ZONE7_START + ZONE7_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE7_START + ZONE7_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE7_BASE_R",
+      "r_end_exp": "ZONE7_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE7_START",
+      "height_exp": "ZONE7_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE7_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE7_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE7_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 8,
+      "name": "COLLAR_7_UPPER",
+      "role": "COLLAR",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE8_START"
+        },
+        {
+          "x": "ZONE8_BASE_R",
+          "y": "ZONE8_START"
+        },
+        {
+          "x": "ZONE8_TOP_R",
+          "y": "ZONE8_START + ZONE8_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE8_START + ZONE8_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE8_BASE_R",
+      "r_end_exp": "ZONE8_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE8_START",
+      "height_exp": "ZONE8_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE8_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE8_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE8_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 9,
+      "name": "NECK_8",
+      "role": "NECK",
+      "segment_type": "ARC",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE9_START"
+        },
+        {
+          "x": "ZONE9_BASE_R",
+          "y": "ZONE9_START"
+        },
+        {
+          "x": "ZONE9_TOP_R",
+          "y": "ZONE9_START + ZONE9_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE9_START + ZONE9_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE9_BASE_R",
+      "r_end_exp": "ZONE9_TOP_R",
+      "r_mid_exp": "ZONE9_MID_R",
+      "z_start_exp": "ZONE9_START",
+      "height_exp": "ZONE9_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE9_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE9_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE9_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 10,
+      "name": "NECK_9",
+      "role": "NECK",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE10_START"
+        },
+        {
+          "x": "ZONE10_BASE_R",
+          "y": "ZONE10_START"
+        },
+        {
+          "x": "ZONE10_TOP_R",
+          "y": "ZONE10_START + ZONE10_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE10_START + ZONE10_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE10_BASE_R",
+      "r_end_exp": "ZONE10_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE10_START",
+      "height_exp": "ZONE10_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE10_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE10_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE10_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 11,
+      "name": "NECK_10",
+      "role": "NECK",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE11_START"
+        },
+        {
+          "x": "ZONE11_BASE_R",
+          "y": "ZONE11_START"
+        },
+        {
+          "x": "ZONE11_TOP_R",
+          "y": "ZONE11_START + ZONE11_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE11_START + ZONE11_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE11_BASE_R",
+      "r_end_exp": "ZONE11_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE11_START",
+      "height_exp": "ZONE11_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE11_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE11_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE11_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 12,
+      "name": "NECK_11",
+      "role": "NECK",
+      "segment_type": "LINE",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE12_START"
+        },
+        {
+          "x": "ZONE12_BASE_R",
+          "y": "ZONE12_START"
+        },
+        {
+          "x": "ZONE12_TOP_R",
+          "y": "ZONE12_START + ZONE12_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE12_START + ZONE12_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE12_BASE_R",
+      "r_end_exp": "ZONE12_TOP_R",
+      "r_mid_exp": null,
+      "z_start_exp": "ZONE12_START",
+      "height_exp": "ZONE12_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE12_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE12_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE12_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    },
+    {
+      "zone_idx": 13,
+      "name": "BULB_12",
+      "role": "BULB",
+      "segment_type": "ARC",
+      "sketch_plane": "XY",
+      "profile_points": [
+        {
+          "x": "0.0",
+          "y": "ZONE13_START"
+        },
+        {
+          "x": "ZONE13_BASE_R",
+          "y": "ZONE13_START"
+        },
+        {
+          "x": "ZONE13_TOP_R",
+          "y": "ZONE13_START + ZONE13_HEIGHT"
+        },
+        {
+          "x": "0.0",
+          "y": "ZONE13_START + ZONE13_HEIGHT"
+        }
+      ],
+      "r_start_exp": "ZONE13_BASE_R",
+      "r_end_exp": "ZONE13_TOP_R",
+      "r_mid_exp": "ZONE13_MID_R",
+      "z_start_exp": "ZONE13_START",
+      "height_exp": "ZONE13_HEIGHT",
+      "dimensions": [
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE13_BASE_R",
+          "line_idx": 0
+        },
+        {
+          "type": "HorizontalDim",
+          "exp": "ZONE13_TOP_R",
+          "line_idx": 2
+        },
+        {
+          "type": "VerticalDim",
+          "exp": "ZONE13_HEIGHT",
+          "line_idx": 3
+        }
+      ],
+      "revolve_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "unite": true,
+      "blend_radius_exp": null
+    }
+  ],
+  "metadata": {
+    "product_type": "consumer_packaging",
+    "image_file": "img\\Oziva4.png",
+    "visual_observations": [
+      "Visual reference: Oziva4.png",
+      "Primary product container with body and closure sections."
+    ],
+    "corrections_applied": [],
+    "directives": {
+      "split_points": [
+        0.65
+      ],
+      "groove": null,
+      "ribs": null,
+      "edge_style": {
+        "base": "fillet",
+        "crown": "fillet"
+      }
+    },
+    "zone_labels": [],
+    "suggested_groupings": {},
+    "notes": ""
+  },
+  "edge_style": {
+    "base": "fillet",
+    "crown": "fillet"
+  }
+}

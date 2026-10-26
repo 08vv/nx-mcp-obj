@@ -347,3 +347,4 @@ Export STEP: motor_mount_plate.stp
 - [ ] Boolean operations specify target and tool bodies
 - [ ] Sketch profiles have closed geometry (all lines connect)
 - [ ] Part name and export paths are specified
+- [ ] MANDATORY: Final tool sequence ends with an explicit save_part() call to persist the in-memory build to disk

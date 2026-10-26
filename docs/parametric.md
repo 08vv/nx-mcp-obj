@@ -2,7 +2,7 @@
 
 ## Overview
 
-NX-MCP implements an **expression-first parametric architecture**. Every geometric dimension created by high-level modeling tools is automatically registered as a named Siemens NX Expression in the part file. This allows AI agents or engineers to later modify driving dimensions via `edit_expression`, triggering automatic downstream geometric updates across the CAD model.
+NX-MCP implements an **expression-first parametric architecture**. Every geometric dimension created by high-level modeling tools is automatically registered as a named Siemens NX Expression in the part file. This allows AI agents or human engineers to later modify driving dimensions via `edit_expression`, triggering automatic downstream geometric updates across the CAD model.
 
 ---
 
@@ -124,11 +124,12 @@ def create_cuboid(length=100.0, width=50.0, height=30.0, x=0.0, y=0.0, z=0.0, ce
 
 ---
 
-## Safe Mathematical Expression Evaluation (`_safe_math_eval`)
+## Safe Mathematical Expression Evaluation (`_safe_math_eval` & `spec/calc.py`)
 
 To evaluate arithmetic expressions securely without exposing arbitrary code execution vulnerabilities through Python's `eval()`:
 - `_safe_math_eval(expr_str)` uses `ast.parse()` to evaluate mathematical expressions (`+`, `-`, `*`, `/`, `**`).
 - Function calls, variable assignments, and imports are strictly rejected.
+- In CAD Specs, `$calc:` references allow expressions such as `$calc:$n1.length / 2 - 5` to be evaluated safely.
 
 ---
 
@@ -146,15 +147,15 @@ When `edit_expression` is called:
 
 ---
 
-## General Parametric Operations (Phase 3)
+## Composable Parametric Operations
 
 The following composable geometry operations allow building arbitrary parametric models without templates:
 
 | Operation | Inputs | Expression Prefixes | Builders Used |
 | :--- | :--- | :--- | :--- |
-| `create_profile` | `points`, `plane="XY"`, `closed=True` | N/A (Wireframe curves registered to `profile_X`) | `Curves.CreateLine` |
+| `create_profile` | `points`, `plane="XY"`, `closed=True` | Wireframe curves registered to `profile_X` | `Curves.CreateLine` |
 | `extrude_profile` | `profile_id`, `distance`, `start`, `direction`, `boolean`, `target` | `EXTRUDE_PROF_N_DIST`, `EXTRUDE_PROF_N_START` | `CreateExtrudeBuilder` |
-| `loft` | `profile_ids`, `guide_curve_ids`, `body_type` | N/A (Multi-section through-curves) | `CreateThroughCurvesBuilder` |
+| `loft` | `profile_ids`, `guide_curve_ids`, `body_type` | Multi-section through-curves | `CreateThroughCurvesBuilder` |
 | `variable_offset` | `target_ref`, `offset_start`, `offset_end`, `law`, `body` | `OFFSET_CRV_N_START`, `OFFSET_CRV_N_END` / `OFFSET_FACE_N_DIST` | `CreateOffsetCurveBuilder`, `CreateOffsetFaceBuilder` |
 | `pattern` | `feature_ref`, `mode`, `count`, `pitch`, `angle_total`, `axis`, `direction` | `PATTERN_N_COUNT`, `PATTERN_N_PITCH` / `CIRC_PAT_N_COUNT`, `CIRC_PAT_N_ANGLE` | `CreatePatternFeatureBuilder` |
 | `shell` | `body_id`, `thickness`, `faces_to_remove` | `SHELL_N_THICK` | `CreateShellBuilder` |
@@ -163,7 +164,7 @@ The following composable geometry operations allow building arbitrary parametric
 
 ## Related Documentation
 
+- [cad_spec_system.md](cad_spec_system.md) — Declarative CAD Spec engine and `$expr:` / `$calc:` references.
 - [bridge.md](bridge.md) — In-NX bridge execution and dispatching.
 - [state.md](state.md) — State management and instance counters.
 - [workflow.md](workflow.md) — Request lifecycle and recipe execution.
-

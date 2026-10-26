@@ -76,7 +76,7 @@ def test_surface_routing(monkeypatch):
     assert calls == [
         ("create_base_surface", {"plane": "XY", "width": 10.0, "height": 20.0}),
         ("extrude_surface", {"distance": 15.0, "start": 5.0, "direction": "Y"}),
-        ("trim_sheet", {"target_body": "b1", "boundary_sketch": "s1"}),
+        ("trim_sheet", {"target_sheet": "b1", "boundary": "s1"}),
         ("reverse_normal", {"body": "b2"}),
     ]
 

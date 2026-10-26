@@ -1,0 +1,33 @@
+{
+  "product_type": "mayonnaise_jar",
+  "image_file": "img/Hellmans.webp",
+  "visual_observations": [
+    "Wide-mouth glass mayonnaise jar with flared base and tapered body.",
+    "Shoulder contour leading to narrow neck ring undercut.",
+    "Ribbed twist-off closure cap with dense vertical grip ribs.",
+    "Crown dome with shallow chamfered top edge."
+  ],
+  "directives": {
+    "split_points": [0.68, 0.76],
+    "groove": {
+      "enabled": true,
+      "name": "NECK_WAIST",
+      "position_ratio": 0.72,
+      "height_ratio": 0.035,
+      "depth_ratio": 0.06
+    },
+    "ribs": {
+      "enabled": true,
+      "target_part": "CAP",
+      "count": 48,
+      "position_ratio": 0.89,
+      "height_ratio": 0.10,
+      "depth_ratio": 0.02,
+      "cutter_dia_ratio": 0.045
+    },
+    "edge_style": {
+      "base": "fillet",
+      "crown": "chamfer"
+    }
+  }
+}

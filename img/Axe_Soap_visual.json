@@ -1,0 +1,80 @@
+{
+  "product_type": "ergonomic_soap_bar",
+  "image_file": "img/Axe_Soap.jpg",
+  "visual_observations": [
+    "Deep blue contoured ergonomic bar of soap (~199.5 mm length, ~128.2 mm width, ~95.4 mm height).",
+    "Bilateral symmetry across vertical and horizontal center planes with hourglass waist narrowing.",
+    "Concave saddle finger-grip curves along upper and lower longitudinal edges narrowing to ~112.5 mm waist.",
+    "Left and right ends feature distinct recessed stepped shelf cutouts flanking the soap bar.",
+    "Central front surface features deeply embossed/debossed 'AXE' bold brand typography.",
+    "Upper curved shoulder features a series of longitudinal fluted traction ribs/grooves.",
+    "Generous rounded cushion perimeter blends (~14 mm radius) wrapping around top and bottom faces."
+  ],
+  "corrections_applied": [
+    "Relabeled Zone 1 from generic BODY_1 to LEFT_END_BEVEL with role BASE (left end chamfered transition).",
+    "Relabeled Zone 2 from generic BODY_2 to LEFT_SHELF_STEP with role WAIST (left stepped shelf recess).",
+    "Relabeled Zone 3 from generic BODY_3 to LEFT_SHOULDER with role SHOULDER (transition into central body).",
+    "Relabeled Zone 4 from generic BODY_4 to MAIN_BAR_CORE with role BODY (main bar body with embossed logo and hourglass waist).",
+    "Relabeled Zone 5 from generic BODY_5 to RIGHT_SHOULDER with role SHOULDER (transition from central body).",
+    "Relabeled Zone 6 from generic BODY_6 to RIGHT_SHELF_STEP with role WAIST (right stepped shelf recess).",
+    "Relabeled Zone 7 from generic CAP_7 to RIGHT_END_BEVEL with role CAP (right end chamfered transition).",
+    "Organized all 7 zones into 3 symmetric assembly groups: LEFT_END, BODY, and RIGHT_END."
+  ],
+  "zone_labels": [
+    {
+      "zone_idx": 1,
+      "role": "BASE",
+      "name": "LEFT_END_BEVEL",
+      "suggested_group": "LEFT_END",
+      "notes": "Left chamfered end transition"
+    },
+    {
+      "zone_idx": 2,
+      "role": "WAIST",
+      "name": "LEFT_SHELF_STEP",
+      "suggested_group": "LEFT_END",
+      "notes": "Left stepped shelf recess transition"
+    },
+    {
+      "zone_idx": 3,
+      "role": "SHOULDER",
+      "name": "LEFT_SHOULDER",
+      "suggested_group": "BODY",
+      "notes": "Left ergonomic transition into main body"
+    },
+    {
+      "zone_idx": 4,
+      "role": "BODY",
+      "name": "MAIN_BAR_CORE",
+      "suggested_group": "BODY",
+      "notes": "Central main bar body with embossed logo and hourglass waist"
+    },
+    {
+      "zone_idx": 5,
+      "role": "SHOULDER",
+      "name": "RIGHT_SHOULDER",
+      "suggested_group": "BODY",
+      "notes": "Right ergonomic transition from main body"
+    },
+    {
+      "zone_idx": 6,
+      "role": "WAIST",
+      "name": "RIGHT_SHELF_STEP",
+      "suggested_group": "RIGHT_END",
+      "notes": "Right stepped shelf recess transition"
+    },
+    {
+      "zone_idx": 7,
+      "role": "CAP",
+      "name": "RIGHT_END_BEVEL",
+      "suggested_group": "RIGHT_END",
+      "notes": "Right chamfered end transition"
+    }
+  ],
+  "suggested_groupings": {
+    "LEFT_END": [1, 2],
+    "BODY": [3, 4, 5],
+    "RIGHT_END": [6, 7]
+  },
+  "notes": "Visual inspection of img/Axe_Soap.jpg confirms ergonomic contoured Axe soap bar with hourglass waist and stepped shelf ends."
+}

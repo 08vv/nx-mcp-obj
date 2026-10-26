@@ -1,8 +1,14 @@
 ================================================================================
-                      NX MCP SERVER — COMPLETE DOCUMENTATION
+                      NX MCP SERVER — HISTORICAL REFERENCE DOCUMENT
 ================================================================================
-Generated: 2026-06-22
-Codebase Location: C:\Users\HP\nx-mcp
+NOTE: This is a historical text snapshot. For the complete, up-to-date documentation,
+please refer to the primary markdown documentation suite:
+  - README.md: Project overview, quickstart, and engineering rules
+  - docs/INDEX.md: Master documentation index and reading guide
+  - docs/architecture.md: Modern 3-layer architecture & 154 registered tools
+  - docs/cad_spec_system.md: Declarative CAD Spec DAG engine (run_spec)
+  - docs/bridge.md: Socket-first bridge execution engine (port 43210)
+  - docs/state.md: Runtime state & Geometry Dependency Graph
 ================================================================================
 
 

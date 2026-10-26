@@ -1,0 +1,21 @@
+{
+  "product_type": "cosmetic_compact_case",
+  "image_file": "img\\makeup_cosmetic_star2.jpg",
+  "visual_observations": [
+    "Visual reference: makeup_cosmetic_star2.jpg",
+    "HS Cosmetic Packaging faceted circular compact case with clear diamond-patterned lower base and purple faceted dome lid.",
+    "Clear base collar transitions to purple faceted lid around Y=5.3mm, with a sharp upper bevel break around Y=14.4mm (79% height) tapering to the flat top logo platform."
+  ],
+  "corrections_applied": [
+    "Split upper lid zone at normalized height 0.79 (Y=14.4mm) to capture the sharp bevel inflection between the lower lid wall and upper faceted bezel."
+  ],
+  "directives": {
+    "split_points": [
+      0.79
+    ],
+    "edge_style": {
+      "base": "fillet",
+      "crown": "fillet"
+    }
+  }
+}

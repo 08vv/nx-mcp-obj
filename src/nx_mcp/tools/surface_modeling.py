@@ -146,7 +146,7 @@ def create_through_curve_mesh(primary: str = "last", cross: str = "last"):
         return ToolError(str(e))
 
 
-@mcp_tool("add_face_blend", "Create a blend between two faces of a body")
+@mcp_tool("add_face_blend", "Create a blend between two faces of a body or adjacent bodies")
 def add_face_blend(
     face1_x: float,
     face1_y: float,
@@ -155,10 +155,12 @@ def add_face_blend(
     face2_y: float,
     face2_z: float,
     radius: float,
-    body: str = "last",
+    body1: str = "previous",
+    body2: str = "last",
+    body: str = None,
 ):
     """
-    Create a blend between two faces of a body.
+    Create a blend between two faces of a body or adjacent bodies.
 
     Args:
         face1_x (float): Parameter face1_x.
@@ -168,7 +170,9 @@ def add_face_blend(
         face2_y (float): Parameter face2_y.
         face2_z (float): Parameter face2_z.
         radius (float): Parameter radius.
-        body (str): Parameter body.
+        body1 (str): Body containing face 1.
+        body2 (str): Body containing face 2.
+        body (str): Fallback body if both faces belong to the same body.
 
     Returns:
         ToolResult: A confirmation message of the operation.
@@ -184,24 +188,26 @@ def add_face_blend(
         if radius <= 0:
             return ToolError("Radius must be positive")
         if not _use_mock_nxopen():
-            return _bridge_result(
-                runner.call_nx(
-                    "add_face_blend",
-                    {
-                        "face1_x": face1_x,
-                        "face1_y": face1_y,
-                        "face1_z": face1_z,
-                        "face2_x": face2_x,
-                        "face2_y": face2_y,
-                        "face2_z": face2_z,
-                        "radius": radius,
-                        "body": body,
-                    },
-                )
-            )
+            params = {
+                "face1_x": face1_x,
+                "face1_y": face1_y,
+                "face1_z": face1_z,
+                "face2_x": face2_x,
+                "face2_y": face2_y,
+                "face2_z": face2_z,
+                "radius": radius,
+                "body1": body1,
+                "body2": body2,
+            }
+            if body is not None:
+                params["body"] = body
+            return _bridge_result(runner.call_nx("add_face_blend", params))
         return ToolResult(f"Face blend R{radius}mm added between faces")
     except Exception as e:
         return ToolError(str(e))
+
+
+face_blend = add_face_blend
 
 
 @mcp_tool("offset_surface", "Create an offset surface from a face")
@@ -750,52 +756,93 @@ def aesthetic_face_blend(
 
 @mcp_tool("bridge_surface", "Create bridge surface between two boundary edges")
 def bridge_surface(
-    edge1_x: float = 0.0,
-    edge1_y: float = 0.0,
-    edge1_z: float = 0.0,
-    edge2_x: float = 0.0,
-    edge2_y: float = 0.0,
-    edge2_z: float = 0.0,
+    body1: str = "previous",
+    body2: str = "last",
+    edge1: str = "outer_edges",
+    edge2: str = "outer_edges",
+    edge1_x: float = None,
+    edge1_y: float = None,
+    edge1_z: float = None,
+    edge2_x: float = None,
+    edge2_y: float = None,
+    edge2_z: float = None,
     body: str = "last",
 ):
     """
     Create bridge surface between two boundary edges.
 
     Args:
-        edge1_x (float): Parameter edge1_x.
-        edge1_y (float): Parameter edge1_y.
-        edge1_z (float): Parameter edge1_z.
-        edge2_x (float): Parameter edge2_x.
-        edge2_y (float): Parameter edge2_y.
-        edge2_z (float): Parameter edge2_z.
-        body (str): Parameter body.
+        body1 (str): Body containing the first edge.
+        body2 (str): Body containing the second edge.
+        edge1 (str): Edge reference on body1.
+        edge2 (str): Edge reference on body2.
+        edge1_x, edge1_y, edge1_z: Optional coordinates for first edge.
+        edge2_x, edge2_y, edge2_z: Optional coordinates for second edge.
+        body (str): Fallback body parameter.
 
     Returns:
         ToolResult: A confirmation message of the operation.
     """
-    edge1_x = float(edge1_x)
-    edge1_y = float(edge1_y)
-    edge1_z = float(edge1_z)
-    edge2_x = float(edge2_x)
-    edge2_y = float(edge2_y)
-    edge2_z = float(edge2_z)
+    params = {
+        "body1": body1,
+        "body2": body2,
+        "edge1": edge1,
+        "edge2": edge2,
+        "body": body,
+    }
+    if edge1_x is not None:
+        params["edge1_x"] = float(edge1_x)
+        params["edge1_y"] = float(edge1_y or 0.0)
+        params["edge1_z"] = float(edge1_z or 0.0)
+    if edge2_x is not None:
+        params["edge2_x"] = float(edge2_x)
+        params["edge2_y"] = float(edge2_y or 0.0)
+        params["edge2_z"] = float(edge2_z or 0.0)
+
+    try:
+        if not _use_mock_nxopen():
+            return _bridge_result(runner.call_nx("bridge_surface", params))
+        return ToolResult("Bridge surface created between edges")
+    except Exception as e:
+        return ToolError(str(e))
+
+
+@mcp_tool("transition_surface", "Create tangent-continuous transition surface between sheet edges")
+def transition_surface(
+    body1: str = "previous",
+    body2: str = "last",
+    edge1: str = "outer_edges",
+    edge2: str = "outer_edges",
+    continuity: str = "tangent",
+):
+    """
+    Connects two curved surfaces/edges with a tangent-continuous transition surface.
+
+    Args:
+        body1 (str): Body containing the first edge.
+        body2 (str): Body containing the second edge.
+        edge1 (str): Edge reference on body1.
+        edge2 (str): Edge reference on body2.
+        continuity (str): Continuity constraint ('tangent', 'curvature').
+
+    Returns:
+        ToolResult: A confirmation message of the operation.
+    """
     try:
         if not _use_mock_nxopen():
             return _bridge_result(
                 runner.call_nx(
-                    "bridge_surface",
+                    "transition_surface",
                     {
-                        "edge1_x": edge1_x,
-                        "edge1_y": edge1_y,
-                        "edge1_z": edge1_z,
-                        "edge2_x": edge2_x,
-                        "edge2_y": edge2_y,
-                        "edge2_z": edge2_z,
-                        "body": body,
+                        "body1": body1,
+                        "body2": body2,
+                        "edge1": edge1,
+                        "edge2": edge2,
+                        "continuity": continuity,
                     },
                 )
             )
-        return ToolResult("Bridge surface created between edges")
+        return ToolResult("Transition surface created between edges")
     except Exception as e:
         return ToolError(str(e))
 
@@ -1154,14 +1201,14 @@ def silhouette_flange(
         return ToolError(str(e))
 
 
-@mcp_tool("face_pairs", "Create pairing relationships between adjacent face contours")
-def face_pairs(distance: float, body: str = "last"):
+@mcp_tool("mid_surface", "Create mid-surface sheet body between face pairs of a solid")
+def mid_surface(distance: float = 15.0, body: str = "last"):
     """
-    Create pairing relationships between adjacent face contours.
+    Create mid-surface sheet body between face pairs of a solid body.
 
     Args:
-        distance (float): Parameter distance.
-        body (str): Parameter body.
+        distance (float): Distance tolerance for pairing faces.
+        body (str): Solid body to extract mid-surface from.
 
     Returns:
         ToolResult: A confirmation message of the operation.
@@ -1172,11 +1219,14 @@ def face_pairs(distance: float, body: str = "last"):
             return ToolError("Distance must be positive")
         if not _use_mock_nxopen():
             return _bridge_result(
-                runner.call_nx("face_pairs", {"distance": distance, "body": body})
+                runner.call_nx("mid_surface", {"distance": distance, "body": body})
             )
-        return ToolResult(f"Face pairs analysis created at distance {distance}mm")
+        return ToolResult(f"Mid-surface created at distance tolerance {distance}mm")
     except Exception as e:
         return ToolError(str(e))
+
+
+face_pairs = mid_surface
 
 
 @mcp_tool(

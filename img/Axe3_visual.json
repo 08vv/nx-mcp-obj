@@ -1,0 +1,70 @@
+{
+  "product_type": "aerosol_deodorant_can",
+  "image_file": "img/Axe3.jpg",
+  "visual_observations": [
+    "Slender cylindrical aerosol can body.",
+    "Narrower recessed neck waist section below cap shoulder.",
+    "Cap features 40 vertical fluted grip ribs wrapping around the lower cap perimeter.",
+    "Beveled top crown with applicator nozzle dome."
+  ],
+  "zone_labels": [
+    {
+      "zone_idx": 1,
+      "role": "BODY",
+      "name": "CANISTER_BODY",
+      "suggested_group": "BODY_ASSEMBLY",
+      "notes": "Main lower cylindrical aerosol canister body"
+    },
+    {
+      "zone_idx": 2,
+      "role": "TRANSITION",
+      "name": "WAIST_TAPER",
+      "suggested_group": "BODY_ASSEMBLY",
+      "notes": "Inward neck taper transition"
+    },
+    {
+      "zone_idx": 3,
+      "role": "NECK",
+      "name": "NECK_WAIST",
+      "suggested_group": "BODY_ASSEMBLY",
+      "notes": "Recessed neck waist section"
+    },
+    {
+      "zone_idx": 4,
+      "role": "SHOULDER",
+      "name": "SHOULDER",
+      "suggested_group": "BODY_ASSEMBLY",
+      "notes": "Shoulder transition step expanding to cap diameter"
+    },
+    {
+      "zone_idx": 5,
+      "role": "CAP",
+      "name": "CAP",
+      "suggested_group": "CAP_ASSEMBLY",
+      "notes": "Main cylindrical cap body with 40 fluted grip ribs"
+    },
+    {
+      "zone_idx": 6,
+      "role": "DOME",
+      "name": "NOZZLE_DOME",
+      "suggested_group": "CAP_ASSEMBLY",
+      "notes": "Top beveled nozzle dome crown"
+    }
+  ],
+  "directives": {
+    "split_points": [],
+    "ribs": {
+      "enabled": true,
+      "target_part": "CAP",
+      "count": 40,
+      "position_ratio": 0.68,
+      "height_ratio": 0.20,
+      "depth_ratio": 0.015,
+      "cutter_dia_ratio": 0.047
+    },
+    "edge_style": {
+      "base": "fillet",
+      "crown": "fillet"
+    }
+  }
+}

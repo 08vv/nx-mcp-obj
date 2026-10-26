@@ -1,0 +1,36 @@
+{
+  "seed": 42,
+  "description": "Deterministic seeded random 2/3 development and 1/3 held-out split of all 23 OBJ meshes in obj/.",
+  "counts": {
+    "development": 15,
+    "held_out": 8,
+    "total": 23
+  },
+  "development": [
+    "Axe_Soap.obj",
+    "Cif3_jerry_can_reduced.obj",
+    "Ellie_18_eye_liner.obj",
+    "Ellie_18_reduced.obj",
+    "Kissan_Bottle2.obj",
+    "Oziva4_reduced.obj",
+    "Rin_soap_reduced.obj",
+    "Surfexcel2_reduced.obj",
+    "TRESemme6.obj",
+    "Todddler_toothbrush.obj",
+    "Vaseline5_reduced.obj",
+    "bracket3h.obj",
+    "elle18-enamel-jar_reduced.obj",
+    "makeup_cosmetic_star2.obj",
+    "sunsilk.obj"
+  ],
+  "held_out": [
+    "Axe3.obj",
+    "Clear3_reduced.obj",
+    "Elle18-Liquid-Lipstick.obj",
+    "Glass jar_reduced.obj",
+    "Hellmans_reduced.obj",
+    "flanged_bearing_housing.obj",
+    "mechanical_bracket.obj",
+    "siemens_bracket.obj"
+  ]
+}

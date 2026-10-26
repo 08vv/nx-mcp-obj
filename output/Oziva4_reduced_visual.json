@@ -1,0 +1,17 @@
+{
+  "product_type": "consumer_packaging",
+  "image_file": "img\\Oziva4.png",
+  "visual_observations": [
+    "Visual reference: Oziva4.png",
+    "Primary product container with body and closure sections."
+  ],
+  "directives": {
+    "split_points": [
+      0.65
+    ],
+    "edge_style": {
+      "base": "fillet",
+      "crown": "fillet"
+    }
+  }
+}

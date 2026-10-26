@@ -14,8 +14,8 @@ The runner (`src/nx_mcp/bridge/runner.py`) is the process and transport manager 
 
 ```python
 class NXBridgeProcess:
-    _proc = None          # Optional legacy process reference
-    _ugraf_proc = None    # ugraf.exe interactive subprocess reference
+    _proc = None             # Optional legacy process reference
+    _ugraf_proc = None       # ugraf.exe interactive subprocess reference
     _lock = threading.Lock() # Thread-safety mutex serializing all bridge calls
 ```
 
@@ -23,7 +23,7 @@ class NXBridgeProcess:
 
 ---
 
-### 2. Environment Verification (`verify_nx_environment()`)
+## 2. Environment Verification (`verify_nx_environment()`)
 
 Before attempting any bridge communication, `verify_nx_environment()` verifies that the host system has a valid Siemens NX installation:
 
@@ -36,7 +36,7 @@ Before attempting any bridge communication, `verify_nx_environment()` verifies t
 
 ---
 
-### 3. Launch Safeguards & Anti-Duplicate Mutex
+## 3. Launch Safeguards & Anti-Duplicate Mutex
 
 To prevent multiple `ugraf.exe` instances from launching simultaneously when parallel tool calls arrive:
 
@@ -47,7 +47,7 @@ To prevent multiple `ugraf.exe` instances from launching simultaneously when par
 
 ---
 
-### 4. Socket Communication Protocol (`_call_socket`)
+## 4. Socket Communication Protocol (`_call_socket`)
 
 Communication is handled over TCP port `43210`:
 
@@ -59,14 +59,14 @@ LAUNCH_TIMEOUT = int(os.environ.get("NX_MCP_LAUNCH_TIMEOUT", "180"))            
 ```
 
 - **Per-Tool Timeout Dynamic Adjustment**:
-  - Complex scripts (`exec_python_code`, `run_recipe`, `run_nx_journal_code`, `execute_journal`) receive up to **300 seconds** (`NX_MCP_JOURNAL_TIMEOUT`).
+  - Complex scripts and specs (`exec_python_code`, `run_recipe`, `run_spec`, `run_nx_journal_code`, `execute_journal`) receive up to **300 seconds** (`NX_MCP_JOURNAL_TIMEOUT`).
   - Standard CAD modeling tools receive **60 seconds** (`NX_MCP_SOCKET_TIMEOUT`).
 - **Payload Framing**: Messages are transmitted as UTF-8 encoded JSON strings terminated by `\n`.
 - **Response Parsing**: Reads chunks from the socket buffer until a newline delimiter is received, then parses the JSON response dict.
 
 ---
 
-### 5. Execution Flow Chart
+## 5. Execution Flow Chart
 
 ```
 call_nx(tool, args)
@@ -100,7 +100,7 @@ _call_socket(s, tool, args) ◀─────────────┘
 
 ---
 
-### 6. File Watcher & Auto-Open Integration (`_update_watcher_files`)
+## 6. File Watcher & Auto-Open Integration (`_update_watcher_files`)
 
 Whenever a part is created or opened, `runner.py` generates helper artifacts in the project root:
 
@@ -110,7 +110,7 @@ Whenever a part is created or opened, `runner.py` generates helper artifacts in 
 
 ---
 
-### 7. Prewarm Instructions (`prewarm_nx.py`)
+## 7. Prewarm Instructions (`prewarm_nx.py`)
 
 If NX is closed and cannot be auto-launched before the timeout expires, the runner returns `NX_PREWARM_REQUIRED_ERROR`:
 
@@ -124,7 +124,20 @@ Running `python prewarm_nx.py` boots NX with the bridge preloaded, ensuring inst
 
 ---
 
-### 8. Cleanup & Reset (`reset_nx_bridge`)
+## 8. Environment Variables Reference
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `UGII_BASE_DIR` | *None* (Required) | Path to Siemens NX root installation (e.g. `C:\Program Files\Siemens\NX2206`). |
+| `NX_MCP_ENABLE_ROUTING` | `1` | Enables dynamic keyword tool routing to optimize prompt token usage. |
+| `NX_MCP_SOCKET_TIMEOUT` | `60` | Socket read timeout in seconds for standard modeling operations. |
+| `NX_MCP_JOURNAL_TIMEOUT` | `300` | Socket read timeout in seconds for multi-step recipes and scripts. |
+| `NX_MCP_LAUNCH_TIMEOUT` | `180` | Maximum wait time in seconds for Siemens NX to boot and open port 43210. |
+| `NX_MCP_USE_MOCK_NXOPEN` | `0` | Enables mock NXOpen runtime for pytest testing without Siemens NX. |
+
+---
+
+## 9. Cleanup & Reset (`reset_nx_bridge`)
 
 ```python
 def reset_nx_bridge(stop_ugraf=False):
@@ -143,3 +156,4 @@ def reset_nx_bridge(stop_ugraf=False):
 - [architecture.md](architecture.md) — System architecture and layer breakdown.
 - [bridge.md](bridge.md) — In-NX bridge execution engine (`nx_bridge.py`).
 - [workflow.md](workflow.md) — Complete end-to-end request lifecycle.
+- [cad_spec_system.md](cad_spec_system.md) — Declarative CAD Spec DAG engine.

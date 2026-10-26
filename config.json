@@ -1,0 +1,15 @@
+{
+  "units_override": {
+    "bracket3h.obj": "in",
+    "Cif3_jerry_can_reduced.obj": "dm",
+    "Glass jar_reduced.obj": "dm",
+    "elle18-enamel-jar_reduced.obj": "dm",
+    "siemens_bracket.obj": "mm",
+    "flanged_bearing_housing.obj": "mm",
+    "Rin_soap_reduced.obj": "dm",
+    "Axe_Soap.obj": "dm",
+    "Axe3.obj": "dm"
+  },
+  "default_units": "mm",
+  "license_server": "28000@192.168.1.5;28000@SunFibo19;28000@192.168.1.29;28000@192.168.1.3;28000@SUN004"
+}

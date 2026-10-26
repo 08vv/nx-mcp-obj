@@ -1,0 +1,60 @@
+{
+  "product_type": "liquid_lipstick_container",
+  "image_file": "img/Elle18-Liquid-Lipstick.jpg",
+  "visual_observations": [
+    "Slender tall cylindrical cosmetic packaging for Elle 18 Liquid Lip Colour (~199.4 mm length, ~22.6 mm diameter).",
+    "Lower body: Pink cylindrical liquid lipstick container vial (~118 mm height) with branding graphics.",
+    "Upper body: Elongated cylindrical black twist cap / wand applicator handle (~78 mm height) with graphic face illustration.",
+    "Parting line / seam: Clean horizontal parting line interface between the bottle reservoir and the twist-off cap wand.",
+    "Base: Bottom circular planar face with a narrow rounded bevel / corner blend (~3.5 mm).",
+    "Cap Crown: Top flat circular face with subtle peripheral bevel / corner blend (~3.0 mm)."
+  ],
+  "directives": {
+    "split_points": [0.60],
+    "groove": {
+      "enabled": true,
+      "name": "PARTING_GROOVE",
+      "position_ratio": 0.60,
+      "height_ratio": 0.017,
+      "depth_ratio": 0.045
+    },
+    "edge_style": {
+      "base": "chamfer",
+      "crown": "fillet"
+    }
+  },
+  "corrections_applied": [
+    "Relabeled Zone 1 from generic BODY to BASE_BEVEL with role BASE (bottom chamfered foot transition).",
+    "Relabeled Zone 2 from generic BODY to MAIN_BARREL with role BARREL (combined reservoir vial and wand handle cylindrical body).",
+    "Relabeled Zone 3 from generic BODY to CAP_CROWN with role CAP (top cap crown bevel)."
+  ],
+  "zone_labels": [
+    {
+      "zone_idx": 1,
+      "role": "BASE",
+      "name": "BASE_BEVEL",
+      "suggested_group": "CONTAINER_BASE",
+      "notes": "Bottom chamfered edge transition"
+    },
+    {
+      "zone_idx": 2,
+      "role": "BARREL",
+      "name": "MAIN_BARREL",
+      "suggested_group": "BODY_ASSEMBLY",
+      "notes": "Main tall cylindrical body spanning bottle reservoir and wand cap"
+    },
+    {
+      "zone_idx": 3,
+      "role": "CAP",
+      "name": "CAP_CROWN",
+      "suggested_group": "CAP_ASSEMBLY",
+      "notes": "Top flat circular face and peripheral bevel"
+    }
+  ],
+  "suggested_groupings": {
+    "CONTAINER_BASE": [1],
+    "BODY_ASSEMBLY": [2],
+    "CAP_ASSEMBLY": [3]
+  },
+  "notes": "Visual inspection of img/Elle18-Liquid-Lipstick.jpg confirms axisymmetric cylindrical liquid lipstick packaging."
+}
